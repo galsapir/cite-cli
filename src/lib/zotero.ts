@@ -1,6 +1,7 @@
 import { loadConfig, updateConfig } from "./config.js";
 import type { CslJson, LibraryEntry } from "../types/index.js";
 import { generateCiteKey } from "./library.js";
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
 
 interface ZoteroConfig {
   apiKey: string;
@@ -57,7 +58,7 @@ export async function addToZotero(
   // Convert CSL-JSON to Zotero item format (simplified)
   const zoteroItem = cslToZoteroItem(csl);
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: "POST",
     headers: {
       "Zotero-API-Key": zConfig.apiKey,
@@ -94,7 +95,7 @@ export async function fetchZoteroLibrary(
 
   while (true) {
     const url = `https://api.zotero.org/${type}/${id}/items?format=csljson&limit=${limit}&start=${start}`;
-    const resp = await fetch(url, {
+    const resp = await fetchWithTimeout(url, {
       headers: {
         "Zotero-API-Key": zConfig.apiKey,
         "Zotero-API-Version": "3",

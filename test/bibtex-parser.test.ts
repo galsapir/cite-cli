@@ -53,6 +53,19 @@ describe("parseBibtex", () => {
     expect(parseBibtex("")).toHaveLength(0);
   });
 
+  it("treats non-numeric year as undefined instead of NaN", () => {
+    const bibtex = `
+@article{broken2020,
+  title = {Bad Year},
+  author = {Test, Author},
+  year = {in press}
+}
+`;
+    const entries = parseBibtex(bibtex);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].issued).toBeUndefined();
+  });
+
   it("cleans LaTeX markup", () => {
     const bibtex = `
 @article{test,
@@ -109,5 +122,16 @@ ER  -
 
   it("handles empty input", () => {
     expect(parseRis("")).toHaveLength(0);
+  });
+
+  it("treats non-numeric year as undefined instead of NaN", () => {
+    const ris = `TY  - JOUR
+TI  - Bad Year Paper
+PY  - forthcoming
+ER  -
+`;
+    const entries = parseRis(ris);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].issued).toBeUndefined();
   });
 });

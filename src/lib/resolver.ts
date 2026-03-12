@@ -1,5 +1,6 @@
 import type { CslJson, IdentifierType, ResolvedReference } from "../types/index.js";
 import { generateCiteKey } from "./library.js";
+import { fetchWithTimeout } from "./fetch-with-timeout.js";
 
 /** Detect the type of identifier provided */
 export function detectIdentifierType(input: string): IdentifierType {
@@ -37,7 +38,7 @@ export async function resolveDoi(doi: string): Promise<CslJson> {
   const normalizedDoi = normalizeDoi(doi);
   const url = `https://api.crossref.org/works/${encodeURIComponent(normalizedDoi)}`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: { Accept: "application/json" },
   });
 
@@ -80,7 +81,7 @@ export async function resolvePmid(pmidInput: string): Promise<CslJson> {
   const pmid = pmidInput.replace(/^pmid:/i, "").trim();
   const url = `https://api.ncbi.nlm.nih.gov/lit/ctxp/v1/pubmed/?format=csl&id=${pmid}`;
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     headers: { Accept: "application/json" },
   });
 
@@ -104,7 +105,7 @@ export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   arxivId = arxivId.replace(/v\d+$/, ""); // strip version
 
   const url = `https://export.arxiv.org/api/query?id_list=${arxivId}`;
-  const resp = await fetch(url);
+  const resp = await fetchWithTimeout(url);
 
   if (!resp.ok) {
     throw new Error(
@@ -162,7 +163,7 @@ export async function searchByTitle(
 ): Promise<CslJson[]> {
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,externalIds,journal,abstract`;
 
-  const resp = await fetch(url);
+  const resp = await fetchWithTimeout(url);
   if (!resp.ok) {
     throw new Error(
       `Semantic Scholar search failed: ${resp.status} ${resp.statusText}`,

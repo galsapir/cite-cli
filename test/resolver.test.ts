@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   detectIdentifierType,
   normalizeDoi,
@@ -51,5 +51,33 @@ describe("normalizeDoi", () => {
 
   it("returns bare DOI unchanged", () => {
     expect(normalizeDoi("10.2337/dc19-1028")).toBe("10.2337/dc19-1028");
+  });
+});
+
+describe("resolveDoi error handling", () => {
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("throws on non-OK response", async () => {
+    const { resolveDoi } = await import("../src/lib/resolver.js");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, { status: 404, statusText: "Not Found" }),
+    );
+    await expect(resolveDoi("10.1234/fake")).rejects.toThrow("CrossRef lookup failed");
+  });
+
+  it("wraps malformed JSON with a descriptive error", async () => {
+    const { resolveDoi } = await import("../src/lib/resolver.js");
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response("not json", { status: 200 }),
+    );
+    await expect(resolveDoi("10.1234/fake")).rejects.toThrow(/parse|json|unexpected/i);
   });
 });
