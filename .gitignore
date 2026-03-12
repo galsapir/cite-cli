@@ -6,6 +6,9 @@ dist/
 # Local config (contains API keys)
 .cite/
 
+# Google OAuth credentials (secrets)
+client_secret*.json
+
 # IDE
 .vscode/
 .idea/
