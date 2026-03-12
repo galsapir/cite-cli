@@ -5,7 +5,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation, type CitationStyle } from "../lib/formatter.js";
-import { logOperation, checkRevisionId } from "../lib/safety.js";
+import { logOperation, checkRevisionId, sortRequestsReverseIndex } from "../lib/safety.js";
 import { formatReference } from "../lib/format.js";
 import type { docs_v1 } from "googleapis";
 
@@ -131,7 +131,8 @@ export function registerRemoveCommand(program: Command): void {
         );
       }
 
-      // Renumber higher citations in the document
+      // Renumber higher citations using position-based replacement
+      // (replaceAllText would match non-citation text like "[5]" in prose)
       for (const hc of higherCitations) {
         const hcEntry = library.find((e) => e.key === hc.key);
         const oldM = formatInlineCitation(
@@ -147,17 +148,37 @@ export function registerRemoveCommand(program: Command): void {
           hcEntry ? [hcEntry.csl] : [],
         );
 
-        requests.push({
-          replaceAllText: {
-            containsText: { text: oldM, matchCase: true },
-            replaceText: newM,
-          },
-        });
+        const renumberIdx = text.indexOf(oldM);
+        if (renumberIdx >= 0) {
+          const renumberStart = renumberIdx + 1; // +1: doc body starts at index 1
+          requests.push({
+            deleteContentRange: {
+              range: {
+                startIndex: renumberStart,
+                endIndex: renumberStart + oldM.length,
+              },
+            },
+          });
+          requests.push({
+            insertText: {
+              location: { index: renumberStart },
+              text: newM,
+            },
+          });
+        } else {
+          console.log(
+            chalk.yellow(
+              `Warning: Marker "${oldM}" not found for renumbering (key: ${hc.key}).`,
+            ),
+          );
+        }
       }
 
-      // Execute (delete first, then renumber)
+      // Sort in reverse index order so later positions are processed first,
+      // preventing earlier deletions from shifting subsequent indices
       if (requests.length > 0) {
-        await batchUpdate(opts.doc, requests);
+        const sortedRequests = sortRequestsReverseIndex(requests);
+        await batchUpdate(opts.doc, sortedRequests);
       }
 
       // Update doc state
