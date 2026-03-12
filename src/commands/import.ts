@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import { parseBibtex, parseRis } from "../lib/bibtex-parser.js";
 import { loadLibrary, addToLibrary, generateCiteKey } from "../lib/library.js";
 import { addToZotero } from "../lib/zotero.js";
+import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 import { loadConfig } from "../lib/config.js";
 import { formatReference } from "../lib/format.js";
 import type { LibraryEntry, CslJson } from "../types/index.js";
@@ -63,7 +64,7 @@ export function registerImportCommand(program: Command): void {
 
       try {
         const url = `https://sciwheel.com/extapi/work/references/export?projectId=${projectId}&exportType=BIBTEX`;
-        const resp = await fetch(url, {
+        const resp = await fetchWithTimeout(url, {
           headers: {
             Authorization: `Bearer ${token}`,
           },

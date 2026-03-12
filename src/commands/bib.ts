@@ -38,7 +38,7 @@ export function registerBibCommand(program: Command): void {
         return;
       }
 
-      const style = (opts.style || docState.style) as CitationStyle;
+      const style = (opts.style || docState.style) as CitationStyle; // opts.style comes from CLI string
       const library = await loadLibrary(docState.libraryId);
 
       // Build bibliography entries in citation order

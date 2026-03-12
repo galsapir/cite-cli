@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getCiteDir } from "./config.js";
-import type { DocState } from "../types/index.js";
+import type { DocState, CitationStyle } from "../types/index.js";
 
 function docStatePath(docId: string): string {
   return join(getCiteDir(), "docs", `${docId}.json`);
@@ -28,7 +28,7 @@ export async function saveDocState(state: DocState): Promise<void> {
 export async function initDocState(
   docId: string,
   libraryId: string,
-  style: string,
+  style: CitationStyle,
 ): Promise<DocState> {
   const existing = await loadDocState(docId);
   if (existing) {

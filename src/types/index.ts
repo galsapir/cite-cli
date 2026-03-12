@@ -35,7 +35,7 @@ export interface LibraryEntry {
 export interface DocState {
   docId: string;
   libraryId: string;
-  style: string;
+  style: CitationStyle;
   citations: CitationEntry[];
   bibNamedRange?: string;
   lastSync: string;
@@ -65,6 +65,9 @@ export interface CiteConfig {
     autoSyncBib?: boolean;
   };
 }
+
+/** Supported citation styles */
+export type CitationStyle = "vancouver" | "apa" | "nature" | "ieee" | "chicago-author-date";
 
 /** Supported identifier types for cite add */
 export type IdentifierType = "doi" | "pmid" | "arxiv" | "url" | "title";

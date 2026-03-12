@@ -2,6 +2,7 @@
 // ABOUTME: Converts entries to CSL-JSON for storage in the local library.
 
 import type { CslJson } from "../types/index.js";
+import { parseAuthorString, parseName } from "./names.js";
 
 /**
  * Simple BibTeX parser that converts entries to CSL-JSON.
@@ -54,19 +55,10 @@ function cleanLatex(text: string): string {
     .trim();
 }
 
-function parseAuthors(authorStr: string): CslJson["author"] {
-  if (!authorStr) return [];
-  return authorStr.split(/\s+and\s+/i).map((name) => {
-    name = name.trim();
-    if (name.includes(",")) {
-      const [family, given] = name.split(",").map((s) => s.trim());
-      return { family, given };
-    }
-    const parts = name.split(" ");
-    const family = parts.pop() || "";
-    const given = parts.join(" ");
-    return { given, family };
-  });
+function parseYearToIssued(yearStr: string | undefined): CslJson["issued"] {
+  if (!yearStr) return undefined;
+  const parsed = parseInt(yearStr, 10);
+  return Number.isNaN(parsed) ? undefined : { "date-parts": [[parsed]] };
 }
 
 function fieldsToCsl(
@@ -88,15 +80,12 @@ function fieldsToCsl(
     unpublished: "manuscript",
   };
 
-  const parsedYear = fields.year ? parseInt(fields.year, 10) : NaN;
-  const year = Number.isNaN(parsedYear) ? undefined : parsedYear;
-
   const csl: CslJson = {
     id: key,
     type: typeMap[type] || "article",
     title: fields.title,
-    author: parseAuthors(fields.author || ""),
-    issued: year ? { "date-parts": [[year]] } : undefined,
+    author: parseAuthorString(fields.author || ""),
+    issued: parseYearToIssued(fields.year),
     "container-title": fields.journal || fields.booktitle,
     volume: fields.volume,
     issue: fields.number,
@@ -115,6 +104,16 @@ function fieldsToCsl(
 /**
  * Simple RIS parser that converts entries to CSL-JSON.
  */
+const RIS_TYPE_MAP: Record<string, string> = {
+  JOUR: "article-journal",
+  BOOK: "book",
+  CHAP: "chapter",
+  CONF: "paper-conference",
+  THES: "thesis",
+  RPRT: "report",
+  GEN: "article",
+};
+
 export function parseRis(ris: string): CslJson[] {
   const entries: CslJson[] = [];
   const blocks = ris.split(/\nER\s*-/).filter((b) => b.trim());
@@ -135,38 +134,15 @@ export function parseRis(ris: string): CslJson[] {
 
     if (fields.size === 0) continue;
 
-    const typeMap: Record<string, string> = {
-      JOUR: "article-journal",
-      BOOK: "book",
-      CHAP: "chapter",
-      CONF: "paper-conference",
-      THES: "thesis",
-      RPRT: "report",
-      GEN: "article",
-    };
-
     const risType = fields.get("TY")?.[0] || "GEN";
-    const authors = (fields.get("AU") || fields.get("A1") || []).map((name) => {
-      if (name.includes(",")) {
-        const [family, given] = name.split(",").map((s) => s.trim());
-        return { family, given };
-      }
-      const parts = name.split(" ");
-      const family = parts.pop() || "";
-      const given = parts.join(" ");
-      return { given, family };
-    });
-
-    const year = fields.get("PY")?.[0] || fields.get("Y1")?.[0];
-    const parsedYearNum = year ? parseInt(year, 10) : NaN;
-    const yearNum = Number.isNaN(parsedYearNum) ? undefined : parsedYearNum;
+    const authors = (fields.get("AU") || fields.get("A1") || []).map(parseName);
 
     const csl: CslJson = {
       id: fields.get("ID")?.[0] || fields.get("DO")?.[0] || `ris-${entries.length}`,
-      type: typeMap[risType] || "article",
+      type: RIS_TYPE_MAP[risType] || "article",
       title: fields.get("TI")?.[0] || fields.get("T1")?.[0],
       author: authors,
-      issued: yearNum ? { "date-parts": [[yearNum]] } : undefined,
+      issued: parseYearToIssued(fields.get("PY")?.[0] || fields.get("Y1")?.[0]),
       "container-title": fields.get("JO")?.[0] || fields.get("T2")?.[0] || fields.get("JF")?.[0],
       volume: fields.get("VL")?.[0],
       issue: fields.get("IS")?.[0],
