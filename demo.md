@@ -732,3 +732,248 @@ npx vitest run 2>&1
 - 45 unit tests across 6 test files (7 new for parsers)
 
 **Next: Phase 4** will add polish features: batch DOI file import, citation removal with renumbering, fuzzy matching, --dry-run and --yes flags on all commands, and style switching.
+
+---
+
+## Phase 4: Polish
+
+Phase 4 adds `cite remove` (safe citation removal with renumbering), `cite config` (style switching and configuration), and `--dry-run` support across all write commands.
+
+### 20. `cite remove` — Safe Citation Removal with Renumbering
+
+Removes a citation marker from the document and renumbers all subsequent citations. Defaults to confirmation prompt (`N`) for safety.
+
+```bash
+node dist/index.js remove --help
+```
+
+```output
+Usage: cite remove [options]
+
+Remove a citation from a Google Doc and renumber remaining citations
+
+Options:
+  --doc <docId>  Google Doc ID
+  --key <key>    Citation key to remove
+  --dry-run      Preview only, do not write
+  -y, --yes      Skip confirmation prompt
+  -h, --help     display help for command
+```
+
+```bash
+node dist/index.js remove --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --key battelino2019 --dry-run
+```
+
+```output
+Will remove:
+  Citation [2] — key "battelino2019"
+  Battelino et al. (2019)  "Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range"  Diabetes Care  DOI: 10.2337/dc19-1028
+
+Renumbering required: 2 citations will be renumbered
+  [3] → [2] (broll2021)
+  [4] → [3] (smith2023missing)
+
+(dry-run mode — no changes made)
+```
+
+The dry-run shows exactly what would happen: citation [2] removed, [3] becomes [2], [4] becomes [3]. No document is modified until explicit confirmation.
+
+### 21. `cite config` — Configuration Management
+
+View and modify settings. Supports style switching per-doc or globally.
+
+```bash
+node dist/index.js config show
+```
+
+```output
+{}
+
+```
+
+```bash
+node dist/index.js config style vancouver && node dist/index.js config set defaults.confirmBeforeWrite true && node dist/index.js config set defaults.autoSyncBib true && node dist/index.js config show
+```
+
+```output
+✓ Default style set to "vancouver"
+✓ defaults.confirmBeforeWrite = true
+✓ defaults.autoSyncBib = true
+defaults:
+  style: vancouver
+  confirmBeforeWrite: true
+  autoSyncBib: true
+
+```
+
+Switch a specific document to APA style:
+
+```bash
+node dist/index.js config style apa --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no && node dist/index.js bib --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --dry-run
+```
+
+```output
+✓ Document style set to "apa"
+Bibliography preview:
+
+  Merrill, M. A., Sapir, G. (2026). Non-experts can distinguish AI-generated from human writing in short health texts. Nature Communications. https://doi.org/10.1038/s41467-025-67922-y
+  Battelino, T., Danne, T., Bergenstal, R. M. (2019). Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range. Diabetes Care, 42(8), 1593-1603. https://doi.org/10.2337/dc19-1028
+  Broll, S., Gaynanova, I., Chun, E. (2021). Interpreting blood GLUcose data with R package iglu. PLOS ONE, 16(4). https://doi.org/10.1371/journal.pone.0248560
+  4. [ERROR: key "smith2023missing" not found in library]
+
+(dry-run mode — no changes made)
+```
+
+Switch back to Vancouver and verify:
+
+```bash
+node dist/index.js config style vancouver --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no && node dist/index.js bib --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --dry-run
+```
+
+```output
+✓ Document style set to "vancouver"
+Bibliography preview:
+
+  1. Merrill MA, Sapir G. Non-experts can distinguish AI-generated from human writing in short health texts. Nature Communications. 2026. doi:10.1038/s41467-025-67922-y
+  2. Battelino T, Danne T, Bergenstal RM. Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range. Diabetes Care. 2019;42(8):1593-1603. doi:10.2337/dc19-1028
+  3. Broll S, Gaynanova I, Chun E. Interpreting blood GLUcose data with R package iglu. PLOS ONE. 2021;16(4). doi:10.1371/journal.pone.0248560
+  4. [ERROR: key "smith2023missing" not found in library]
+
+(dry-run mode — no changes made)
+```
+
+### 22. `--dry-run` on `cite insert`
+
+The insert command now also supports `--dry-run`:
+
+```bash
+node dist/index.js insert --help | grep dry-run
+```
+
+```output
+  --dry-run         Preview only, do not write
+```
+
+### 23. Complete Command Reference
+
+```bash
+node dist/index.js --help
+```
+
+```output
+Usage: cite [options] [command]
+
+CLI Citation Manager for Google Docs
+
+Options:
+  -V, --version               output the version number
+  -h, --help                  display help for command
+
+Commands:
+  auth                        Set up authentication for external services
+  add [options] [identifier]  Add a reference to the library by DOI, URL, PMID,
+                              arXiv ID, or title
+  search [options] [query]    Search the local citation library
+  init [options]              Initialize a Google Doc for citation management
+  insert [options]            Insert an inline citation into a Google Doc
+  bib [options]               Generate or update the bibliography section in a
+                              Google Doc
+  audit [options]             Audit citations in a Google Doc
+  import                      Import references from external sources
+  sync [options]              Sync local library mirror with Zotero cloud
+  remove [options]            Remove a citation from a Google Doc and renumber
+                              remaining citations
+  config                      View or update configuration
+  help [command]              display help for command
+```
+
+### 24. Final Test Suite
+
+```bash
+npx vitest run 2>&1
+```
+
+```output
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/home/user/cite-and-write-cli[39m
+
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m45 passed[39m[22m[90m (45)[39m
+[2m   Start at [22m 14:34:23
+[2m   Duration [22m 991ms[2m (transform 264ms, setup 0ms, import 1.06s, tests 31ms, environment 0ms)[22m
+
+```
+
+### 25. Final Project Structure
+
+```bash
+find src test -type f | sort
+```
+
+```output
+src/commands/add.ts
+src/commands/audit.ts
+src/commands/auth.ts
+src/commands/bib.ts
+src/commands/config-cmd.ts
+src/commands/import.ts
+src/commands/init.ts
+src/commands/insert.ts
+src/commands/remove.ts
+src/commands/search.ts
+src/commands/sync.ts
+src/index.ts
+src/lib/bibtex-parser.ts
+src/lib/config.ts
+src/lib/doc-state.ts
+src/lib/format.ts
+src/lib/formatter.ts
+src/lib/google-auth.ts
+src/lib/google-docs.ts
+src/lib/library.ts
+src/lib/resolver.ts
+src/lib/safety.ts
+src/lib/zotero.ts
+src/types/index.ts
+test/bibtex-parser.test.ts
+test/fixtures/sample.bib
+test/fixtures/sample.ris
+test/formatter.test.ts
+test/google-docs.test.ts
+test/library.test.ts
+test/resolver.test.ts
+test/safety.test.ts
+```
+
+---
+
+## Phase 4 Summary
+
+**Implemented:**
+- `cite remove` — Safe citation removal with renumbering preview, confirmation defaults to No, `--dry-run` support
+- `cite config show` — Display current configuration (API keys redacted)
+- `cite config style` — Switch citation style globally or per-document
+- `cite config set` — Set arbitrary config values via dot-notation
+- `--dry-run` flag added to `cite insert`
+
+## Final Summary — All Phases
+
+| Command | Description | Phase |
+|---------|-------------|-------|
+| `cite auth google` | Google Docs OAuth2 setup | 1 |
+| `cite auth zotero` | Zotero API key setup | 1 |
+| `cite add` | Add reference by DOI/URL/PMID/arXiv/title | 1 |
+| `cite search` | Search local library (text, author, year, tag) | 1 |
+| `cite init` | Initialize doc for citation management | 1 |
+| `cite insert` | Insert inline citations with preview | 2 |
+| `cite bib` | Generate/update bibliography (5 styles) | 2 |
+| `cite audit` | Document citation health check | 2 |
+| `cite import bibtex` | Import from BibTeX files | 3 |
+| `cite import ris` | Import from RIS files | 3 |
+| `cite import sciwheel` | One-time SciWheel migration | 3 |
+| `cite sync` | Zotero ↔ local mirror sync | 3 |
+| `cite remove` | Safe citation removal + renumbering | 4 |
+| `cite config` | Configuration and style management | 4 |
+
+**Stats:** 24 source files, 6 test files, 45 unit tests, 0 external parser dependencies.

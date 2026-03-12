@@ -10,6 +10,8 @@ import { registerBibCommand } from "./commands/bib.js";
 import { registerAuditCommand } from "./commands/audit.js";
 import { registerImportCommand } from "./commands/import.js";
 import { registerSyncCommand } from "./commands/sync.js";
+import { registerRemoveCommand } from "./commands/remove.js";
+import { registerConfigCommand } from "./commands/config-cmd.js";
 import { ensureCiteDir } from "./lib/config.js";
 
 const program = new Command();
@@ -29,6 +31,8 @@ registerBibCommand(program);
 registerAuditCommand(program);
 registerImportCommand(program);
 registerSyncCommand(program);
+registerRemoveCommand(program);
+registerConfigCommand(program);
 
 // Ensure ~/.cite directory structure exists
 await ensureCiteDir();

@@ -22,6 +22,7 @@ export function registerInsertCommand(program: Command): void {
     .option("--occurrence <n>", "Which occurrence of the search string", "1")
     .option("--paragraph <n>", "Insert at paragraph number (1-indexed)")
     .option("--position <pos>", "Position within paragraph: start or end", "end")
+    .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const docState = await loadDocState(opts.doc);
@@ -139,6 +140,11 @@ export function registerInsertCommand(program: Command): void {
         formatInsertPreview(marker.trim(), contextText, paragraphIdx, insertIndex),
       );
       console.log("");
+
+      if (opts.dryRun) {
+        console.log(chalk.dim("(dry-run mode — no changes made)"));
+        return;
+      }
 
       if (!opts.yes) {
         const ok = await confirm({
