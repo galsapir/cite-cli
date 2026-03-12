@@ -85,7 +85,8 @@ function fieldsToCsl(
     unpublished: "manuscript",
   };
 
-  const year = fields.year ? parseInt(fields.year) : undefined;
+  const parsedYear = fields.year ? parseInt(fields.year, 10) : NaN;
+  const year = Number.isNaN(parsedYear) ? undefined : parsedYear;
 
   const csl: CslJson = {
     id: key,
@@ -154,7 +155,8 @@ export function parseRis(ris: string): CslJson[] {
     });
 
     const year = fields.get("PY")?.[0] || fields.get("Y1")?.[0];
-    const yearNum = year ? parseInt(year) : undefined;
+    const parsedYearNum = year ? parseInt(year, 10) : NaN;
+    const yearNum = Number.isNaN(parsedYearNum) ? undefined : parsedYearNum;
 
     const csl: CslJson = {
       id: fields.get("ID")?.[0] || fields.get("DO")?.[0] || `ris-${entries.length}`,
