@@ -6,7 +6,7 @@ import { confirm, input } from "@inquirer/prompts";
 import chalk from "chalk";
 import { readFile } from "node:fs/promises";
 import { parseBibtex, parseRis } from "../lib/bibtex-parser.js";
-import { loadLibrary, addToLibrary, generateCiteKey } from "../lib/library.js";
+import { loadLibrary, saveLibrary, generateCiteKey } from "../lib/library.js";
 import { addToZotero } from "../lib/zotero.js";
 import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 import { loadConfig } from "../lib/config.js";
@@ -139,8 +139,8 @@ async function importCslEntries(
     }
   }
 
-  const existing = await loadLibrary(libraryId);
-  const existingKeys = existing.map((e) => e.key);
+  const entries = await loadLibrary(libraryId);
+  const existingKeys = entries.map((e) => e.key);
   let added = 0;
   let failed = 0;
 
@@ -159,7 +159,7 @@ async function importCslEntries(
       const zoteroKey = await addToZotero(libraryId, csl);
       if (zoteroKey) entry.zoteroKey = zoteroKey;
 
-      await addToLibrary(libraryId, entry);
+      entries.push(entry);
       console.log(`  ${chalk.green("✓")} [${key}] ${csl.title || "Untitled"}`);
       added++;
     } catch (err: any) {
@@ -167,6 +167,9 @@ async function importCslEntries(
       failed++;
     }
   }
+
+  // Save all entries at once instead of per-entry
+  await saveLibrary(libraryId, entries);
 
   console.log(
     `\nImport complete: ${chalk.green(`${added} added`)}, ${chalk.red(`${failed} failed`)}`,
