@@ -90,65 +90,45 @@ export function registerBibCommand(program: Command): void {
       }
 
       const requests: docs_v1.Schema$Request[] = [];
-
-      // Check if named range exists for bibliography
-      const namedRanges = doc.namedRanges;
       const bibRangeName = docState.bibNamedRange || "cite-bibliography";
-      const existingRange = namedRanges[bibRangeName];
+      const namedRanges = doc.namedRanges;
+      const existingRange = namedRanges?.[bibRangeName];
+
+      let insertIndex: number;
 
       if (existingRange && existingRange.length > 0) {
-        // Replace existing bibliography content
-        const ranges = existingRange[0].namedRangeId
-          ? existingRange
-          : [];
+        // Find the range spanning the existing bibliography
+        const nr = existingRange[0];
+        const range = nr.ranges?.[0];
+        if (range?.startIndex != null && range?.endIndex != null) {
+          insertIndex = range.startIndex;
 
-        // Find the actual range in the named ranges
-        for (const nr of existingRange) {
-          if (nr.ranges) {
-            for (const range of nr.ranges) {
-              if (range.startIndex != null && range.endIndex != null) {
-                // Delete old content
-                requests.push({
-                  deleteContentRange: {
-                    range: {
-                      startIndex: range.startIndex,
-                      endIndex: range.endIndex,
-                    },
-                  },
-                });
-                // Insert new content at the same position
-                requests.push({
-                  insertText: {
-                    location: { index: range.startIndex },
-                    text: bibText,
-                  },
-                });
-              }
-            }
+          // Delete the old named range
+          if (nr.namedRangeId) {
+            requests.push({
+              deleteNamedRange: { namedRangeId: nr.namedRangeId },
+            });
           }
-        }
-      } else {
-        // First time: need a location
-        if (!opts.after) {
-          // Default: append to end of document
-          const lastElement = doc.body[doc.body.length - 1];
-          const endIndex = lastElement?.endIndex
-            ? lastElement.endIndex - 1
-            : 1;
 
+          // Delete old bibliography content
           requests.push({
-            insertText: {
-              location: { index: endIndex },
-              text: bibText,
+            deleteContentRange: {
+              range: {
+                startIndex: range.startIndex,
+                endIndex: range.endIndex,
+              },
             },
           });
-
-          // Create named range around the bibliography
-          // (We'll need the response to get the actual indices — simplified here)
-          console.log(
-            chalk.dim("  Bibliography will be appended at end of document."),
-          );
         } else {
+          // Range metadata is broken — fall back to appending at end
+          const lastElement = doc.body[doc.body.length - 1];
+          insertIndex = lastElement?.endIndex
+            ? lastElement.endIndex - 1
+            : 1;
+        }
+      } else {
+        // First time: determine insertion point
+        if (opts.after) {
           const loc = findTextLocation(doc.body, opts.after);
           if (!loc) {
             console.error(
@@ -156,18 +136,39 @@ export function registerBibCommand(program: Command): void {
             );
             process.exit(1);
           }
-
-          requests.push({
-            insertText: {
-              location: { index: loc.endIndex },
-              text: bibText,
-            },
-          });
+          insertIndex = loc.endIndex;
+        } else {
+          const lastElement = doc.body[doc.body.length - 1];
+          insertIndex = lastElement?.endIndex
+            ? lastElement.endIndex - 1
+            : 1;
+          console.log(
+            chalk.dim("  Bibliography will be appended at end of document."),
+          );
         }
-
-        // Update state with named range name
-        docState.bibNamedRange = bibRangeName;
       }
+
+      // Insert the new bibliography text
+      requests.push({
+        insertText: {
+          location: { index: insertIndex },
+          text: bibText,
+        },
+      });
+
+      // Create a named range around the inserted bibliography so we can
+      // find and replace it on subsequent runs
+      requests.push({
+        createNamedRange: {
+          name: bibRangeName,
+          range: {
+            startIndex: insertIndex,
+            endIndex: insertIndex + bibText.length,
+          },
+        },
+      });
+
+      docState.bibNamedRange = bibRangeName;
 
       // Execute
       await batchUpdate(opts.doc, requests);
