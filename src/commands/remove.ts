@@ -7,7 +7,7 @@ import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate } from "../lib/google-docs.js";
-import { formatInlineCitation, type CitationStyle } from "../lib/formatter.js";
+import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, checkRevisionId, sortRequestsReverseIndex } from "../lib/safety.js";
 import { formatReference } from "../lib/format.js";
 import type { docs_v1 } from "googleapis";
@@ -93,12 +93,11 @@ export function registerRemoveCommand(program: Command): void {
 
       const text = extractText(doc.body);
 
-      const style = docState.style as CitationStyle;
+      const style = docState.style;
       const requests: docs_v1.Schema$Request[] = [];
 
       // Find and remove the citation marker in the document
       const oldMarker = formatInlineCitation(
-        [opts.key],
         [citation.index],
         style,
         libEntry ? [libEntry.csl] : [],
@@ -139,13 +138,11 @@ export function registerRemoveCommand(program: Command): void {
       for (const hc of higherCitations) {
         const hcEntry = library.find((e) => e.key === hc.key);
         const oldM = formatInlineCitation(
-          [hc.key],
           [hc.index],
           style,
           hcEntry ? [hcEntry.csl] : [],
         );
         const newM = formatInlineCitation(
-          [hc.key],
           [hc.index - 1],
           style,
           hcEntry ? [hcEntry.csl] : [],

@@ -1,14 +1,13 @@
 // ABOUTME: Citation style formatter for inline markers and bibliography entries.
 // ABOUTME: Supports Vancouver, APA, Nature, IEEE, and Chicago styles.
 
-import type { CslJson } from "../types/index.js";
+import type { CslJson, CitationStyle } from "../types/index.js";
 import { formatAuthors, getYear } from "./format.js";
 
-export type CitationStyle = "vancouver" | "apa" | "nature" | "ieee" | "chicago-author-date";
+export type { CitationStyle };
 
 /** Format an inline citation marker */
 export function formatInlineCitation(
-  keys: string[],
   indices: number[],
   style: CitationStyle,
   cslEntries: CslJson[],

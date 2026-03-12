@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary, findInLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js";
 import { batchUpdate } from "../lib/google-docs.js";
-import { formatInlineCitation, type CitationStyle } from "../lib/formatter.js";
+import { formatInlineCitation } from "../lib/formatter.js";
 import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
@@ -143,9 +143,9 @@ export function registerInsertCommand(program: Command): void {
       }
 
       // Format the citation marker
-      const style = docState.style as CitationStyle;
+      const style = docState.style;
       const marker =
-        " " + formatInlineCitation(keys, indices, style, cslEntries);
+        " " + formatInlineCitation(indices, style, cslEntries);
 
       // Preview
       console.log("");

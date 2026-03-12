@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { initDocState } from "../lib/doc-state.js";
+import type { CitationStyle } from "../types/index.js";
 import { loadConfig } from "../lib/config.js";
 
 export function registerInitCommand(program: Command): void {
@@ -21,7 +22,7 @@ export function registerInitCommand(program: Command): void {
         "local";
 
       try {
-        const state = await initDocState(opts.doc, libraryId, opts.style);
+        const state = await initDocState(opts.doc, libraryId, opts.style as CitationStyle);
         console.log(chalk.green("✓ Document initialized for citation management\n"));
         console.log(`  Doc ID:   ${state.docId}`);
         console.log(`  Library:  ${state.libraryId}`);

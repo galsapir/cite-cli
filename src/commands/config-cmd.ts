@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig, updateConfig } from "../lib/config.js";
+import type { CitationStyle } from "../types/index.js";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { stringify as stringifyYaml } from "yaml";
 
@@ -45,7 +46,7 @@ export function registerConfigCommand(program: Command): void {
           console.error(chalk.red(`Doc ${opts.doc} not initialized.`));
           process.exit(1);
         }
-        docState.style = style;
+        docState.style = style as CitationStyle;
         await saveDocState(docState);
         console.log(chalk.green(`✓ Document style set to "${style}"`));
       } else {

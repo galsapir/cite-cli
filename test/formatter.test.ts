@@ -20,19 +20,19 @@ const sampleCsl: CslJson = {
 
 describe("formatInlineCitation", () => {
   it("formats single numbered citation (vancouver)", () => {
-    expect(formatInlineCitation(["key1"], [1], "vancouver", [sampleCsl])).toBe("[1]");
+    expect(formatInlineCitation([1], "vancouver", [sampleCsl])).toBe("[1]");
   });
 
   it("formats multiple numbered citations", () => {
-    expect(formatInlineCitation(["k1", "k2", "k3"], [1, 2, 3], "vancouver", [])).toBe("[1-3]");
+    expect(formatInlineCitation([1, 2, 3], "vancouver", [])).toBe("[1-3]");
   });
 
   it("formats non-consecutive numbered citations", () => {
-    expect(formatInlineCitation(["k1", "k2"], [1, 3], "vancouver", [])).toBe("[1,3]");
+    expect(formatInlineCitation([1, 3], "vancouver", [])).toBe("[1,3]");
   });
 
   it("formats APA author-year", () => {
-    const result = formatInlineCitation(["k1"], [1], "apa", [sampleCsl]);
+    const result = formatInlineCitation([1], "apa", [sampleCsl]);
     expect(result).toContain("Battelino");
     expect(result).toContain("2019");
   });
@@ -43,7 +43,7 @@ describe("formatInlineCitation", () => {
       author: [{ given: "Steven", family: "Broll" }],
       issued: { "date-parts": [[2021]] },
     };
-    const result = formatInlineCitation(["k1", "k2"], [1, 2], "apa", [sampleCsl, csl2]);
+    const result = formatInlineCitation([1, 2], "apa", [sampleCsl, csl2]);
     expect(result).toContain(";");
     expect(result).toContain("Battelino");
     expect(result).toContain("Broll");

@@ -4,6 +4,7 @@
 import type { CslJson, IdentifierType, ResolvedReference } from "../types/index.js";
 import { generateCiteKey } from "./library.js";
 import { fetchWithTimeout } from "./fetch-with-timeout.js";
+import { parseName } from "./names.js";
 
 /** Detect the type of identifier provided */
 export function detectIdentifierType(input: string): IdentifierType {
@@ -132,10 +133,7 @@ export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   const authorMatches = xml.matchAll(/<author>\s*<name>([^<]+)<\/name>/g);
   const authors: CslJson["author"] = [];
   for (const m of authorMatches) {
-    const parts = m[1].trim().split(" ");
-    const family = parts.pop() || "";
-    const given = parts.join(" ");
-    authors.push({ given, family });
+    authors.push(parseName(m[1]));
   }
 
   // Extract DOI if present
@@ -183,12 +181,7 @@ export async function searchByTitle(
       id: paper.externalIds?.DOI || paper.paperId,
       type: "article-journal",
       title: paper.title,
-      author: paper.authors?.map((a: any) => {
-        const parts = a.name.split(" ");
-        const family = parts.pop() || "";
-        const given = parts.join(" ");
-        return { given, family };
-      }),
+      author: paper.authors?.map((a: any) => parseName(a.name)),
       issued: paper.year ? { "date-parts": [[paper.year]] } : undefined,
       "container-title": paper.journal?.name,
       DOI: paper.externalIds?.DOI,

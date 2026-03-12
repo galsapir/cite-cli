@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getCiteDir } from "./config.js";
 import type { LibraryEntry, CslJson } from "../types/index.js";
+import { getYear } from "./format.js";
 
 function libraryPath(libraryId: string): string {
   const safeId = libraryId.replace(/\//g, "-");
@@ -81,7 +82,7 @@ export async function searchLibrary(
       if (!hasAuthor) return false;
     }
     if (opts.year) {
-      const year = entry.csl.issued?.["date-parts"]?.[0]?.[0]?.toString();
+      const year = getYear(entry.csl);
       if (year !== opts.year) return false;
     }
     if (opts.tag) {
@@ -112,13 +113,8 @@ export function generateCiteKey(
       .replace(/[^a-z]/g, "");
   }
 
-  let yearPart = "";
-  if (csl.issued?.["date-parts"]?.[0]?.[0]) {
-    yearPart = csl.issued["date-parts"][0][0].toString();
-  } else if (csl.issued?.raw) {
-    const match = csl.issued.raw.match(/(\d{4})/);
-    if (match) yearPart = match[1];
-  }
+  const yearStr = getYear(csl);
+  const yearPart = yearStr === "n.d." ? "" : yearStr;
 
   const baseKey = `${authorPart}${yearPart}`;
 
