@@ -2,7 +2,6 @@
 // ABOUTME: Provides load/save/update for global configuration.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -20,21 +19,19 @@ export function getConfigPath(): string {
 }
 
 export async function ensureCiteDir(): Promise<void> {
-  const dirs = [CITE_DIR, join(CITE_DIR, "libraries"), join(CITE_DIR, "docs")];
-  for (const dir of dirs) {
-    if (!existsSync(dir)) {
-      await mkdir(dir, { recursive: true });
-    }
-  }
+  await mkdir(join(CITE_DIR, "libraries"), { recursive: true });
+  await mkdir(join(CITE_DIR, "docs"), { recursive: true });
 }
 
 export async function loadConfig(): Promise<CiteConfig> {
   await ensureCiteDir();
-  if (!existsSync(CONFIG_PATH)) {
-    return {};
+  try {
+    const raw = await readFile(CONFIG_PATH, "utf-8");
+    return (parseYaml(raw) as CiteConfig) ?? {};
+  } catch (err: any) {
+    if (err.code === "ENOENT") return {};
+    throw err;
   }
-  const raw = await readFile(CONFIG_PATH, "utf-8");
-  return (parseYaml(raw) as CiteConfig) ?? {};
 }
 
 export async function saveConfig(config: CiteConfig): Promise<void> {

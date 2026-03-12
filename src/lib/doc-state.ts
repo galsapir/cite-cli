@@ -2,7 +2,6 @@
 // ABOUTME: Persists state as JSON files in ~/.cite/docs/.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getCiteDir } from "./config.js";
 import type { DocState, CitationStyle } from "../types/index.js";
@@ -13,11 +12,13 @@ function docStatePath(docId: string): string {
 
 export async function loadDocState(docId: string): Promise<DocState | null> {
   const path = docStatePath(docId);
-  if (!existsSync(path)) {
-    return null;
+  try {
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw) as DocState;
+  } catch (err: any) {
+    if (err.code === "ENOENT") return null;
+    throw err;
   }
-  const raw = await readFile(path, "utf-8");
-  return JSON.parse(raw) as DocState;
 }
 
 export async function saveDocState(state: DocState): Promise<void> {

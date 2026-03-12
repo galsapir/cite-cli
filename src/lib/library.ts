@@ -2,7 +2,6 @@
 // ABOUTME: Handles CRUD operations, search, and cite-key generation.
 
 import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getCiteDir } from "./config.js";
 import type { LibraryEntry, CslJson } from "../types/index.js";
@@ -15,11 +14,13 @@ function libraryPath(libraryId: string): string {
 
 export async function loadLibrary(libraryId: string): Promise<LibraryEntry[]> {
   const path = libraryPath(libraryId);
-  if (!existsSync(path)) {
-    return [];
+  try {
+    const raw = await readFile(path, "utf-8");
+    return JSON.parse(raw) as LibraryEntry[];
+  } catch (err: any) {
+    if (err.code === "ENOENT") return [];
+    throw err;
   }
-  const raw = await readFile(path, "utf-8");
-  return JSON.parse(raw) as LibraryEntry[];
 }
 
 export async function saveLibrary(

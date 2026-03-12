@@ -61,6 +61,42 @@ function formatAuthorYearCitation(entries: CslJson[]): string {
   return `(${parts.join("; ")})`;
 }
 
+type InitialsFormat =
+  | "compact"       // "AB" — Vancouver
+  | "dotted"        // "A. B." — APA, Nature
+  | "dotted-first"  // "A. B. Family" — IEEE (initials before family)
+  | "full";         // full given name — Chicago
+
+function formatBibAuthorList(
+  authors: CslJson["author"],
+  format: InitialsFormat,
+): string {
+  if (!authors || authors.length === 0) return "Unknown";
+
+  return authors.map((a) => {
+    if (a.literal) return a.literal;
+    const given = a.given || "";
+    const family = a.family || "";
+
+    switch (format) {
+      case "compact": {
+        const initials = given.split(" ").map((n) => n[0]).join("");
+        return `${family} ${initials}`;
+      }
+      case "dotted": {
+        const initials = given.split(" ").map((n) => `${n[0]}.`).join(" ");
+        return `${family}, ${initials}`;
+      }
+      case "dotted-first": {
+        const initials = given.split(" ").map((n) => `${n[0]}.`).join(" ");
+        return `${initials} ${family}`;
+      }
+      case "full":
+        return `${family}, ${given}`;
+    }
+  }).join(", ");
+}
+
 /** Format a bibliography entry */
 export function formatBibEntry(
   index: number,
@@ -84,16 +120,7 @@ export function formatBibEntry(
 }
 
 function formatVancouverEntry(index: number, csl: CslJson): string {
-  const authors = csl.author?.map((a) => {
-    if (a.literal) return a.literal;
-    const initials = a.given
-      ? a.given
-          .split(" ")
-          .map((n) => n[0])
-          .join("")
-      : "";
-    return `${a.family} ${initials}`;
-  }).join(", ") || "Unknown";
+  const authors = formatBibAuthorList(csl.author, "compact");
 
   const title = csl.title || "Untitled";
   const journal = csl["container-title"] || "";
@@ -111,16 +138,7 @@ function formatVancouverEntry(index: number, csl: CslJson): string {
 }
 
 function formatApaEntry(csl: CslJson): string {
-  const authors = csl.author?.map((a) => {
-    if (a.literal) return a.literal;
-    const initials = a.given
-      ? a.given
-          .split(" ")
-          .map((n) => `${n[0]}.`)
-          .join(" ")
-      : "";
-    return `${a.family}, ${initials}`;
-  }).join(", ") || "Unknown";
+  const authors = formatBibAuthorList(csl.author, "dotted");
 
   const year = getYear(csl);
   const title = csl.title || "Untitled";
@@ -141,16 +159,7 @@ function formatApaEntry(csl: CslJson): string {
 }
 
 function formatNatureEntry(index: number, csl: CslJson): string {
-  const authors = csl.author?.map((a) => {
-    if (a.literal) return a.literal;
-    const initials = a.given
-      ? a.given
-          .split(" ")
-          .map((n) => `${n[0]}.`)
-          .join(" ")
-      : "";
-    return `${a.family}, ${initials}`;
-  }).join(", ") || "Unknown";
+  const authors = formatBibAuthorList(csl.author, "dotted");
 
   const title = csl.title || "Untitled";
   const journal = csl["container-title"] || "";
@@ -165,16 +174,7 @@ function formatNatureEntry(index: number, csl: CslJson): string {
 }
 
 function formatIeeeEntry(index: number, csl: CslJson): string {
-  const authors = csl.author?.map((a) => {
-    if (a.literal) return a.literal;
-    const initials = a.given
-      ? a.given
-          .split(" ")
-          .map((n) => `${n[0]}.`)
-          .join(" ")
-      : "";
-    return `${initials} ${a.family}`;
-  }).join(", ") || "Unknown";
+  const authors = formatBibAuthorList(csl.author, "dotted-first");
 
   const title = csl.title || "Untitled";
   const journal = csl["container-title"] || "";
@@ -190,10 +190,7 @@ function formatIeeeEntry(index: number, csl: CslJson): string {
 }
 
 function formatChicagoEntry(csl: CslJson): string {
-  const authors = csl.author?.map((a) => {
-    if (a.literal) return a.literal;
-    return `${a.family}, ${a.given || ""}`;
-  }).join(", ") || "Unknown";
+  const authors = formatBibAuthorList(csl.author, "full");
 
   const year = getYear(csl);
   const title = csl.title || "Untitled";
