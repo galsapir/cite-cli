@@ -381,3 +381,195 @@ find ~/.cite -type f | sort
 **Architecture:** Three-layer design (Resolver → Library → Doc Editor) with local state at `~/.cite/` and Zotero cloud sync.
 
 **Next: Phase 2** will add `cite insert`, `cite bib`, `cite audit`, and the safety layer.
+
+---
+
+## Phase 2: Core Editing
+
+Phase 2 adds the commands that actually write to Google Docs: `cite insert`, `cite bib`, and `cite audit`. It also implements the safety layer (reverse-index batching, revisionId checks, operation logging).
+
+### 9. `cite insert` — Insert Inline Citations
+
+Inserts a citation marker (e.g. `[1]`) at a specific location in a Google Doc. Supports:
+- `--after "text"` to insert after a search string
+- `--paragraph N` to insert at a paragraph boundary
+- `--key` for single or `--keys` for multiple citations
+- Preview before commit, with context display
+- Automatic numbering and de-duplication
+
+```bash
+node dist/index.js insert --help
+```
+
+```output
+Usage: cite insert [options]
+
+Insert an inline citation into a Google Doc
+
+Options:
+  --doc <docId>     Google Doc ID
+  --key <key>       Citation key from library
+  --keys <keys>     Comma-separated citation keys
+  --after <text>    Insert after this search string (first occurrence)
+  --occurrence <n>  Which occurrence of the search string (default: "1")
+  --paragraph <n>   Insert at paragraph number (1-indexed)
+  --position <pos>  Position within paragraph: start or end (default: "end")
+  -y, --yes         Skip confirmation prompt
+  -h, --help        display help for command
+```
+
+The insert command requires Google Docs API access (which is not available in this sandbox). The command flow is:
+1. Fetch document via `documents.get`
+2. Locate insertion point by searching for the `--after` text
+3. Compute the character index at the end of the match
+4. Show preview with surrounding context and citation marker
+5. On confirm, execute `batchUpdate` with `insertText` at the computed index
+6. Update per-doc state with new citation number and key
+7. Log the operation to `~/.cite/docs/{docId}.log`
+
+### 10. `cite bib` — Bibliography Generation
+
+Generates a formatted bibliography from all tracked citations. Supports 5 built-in styles: Vancouver, APA, Nature, IEEE, and Chicago author-date. Includes `--dry-run` for preview-only mode.
+
+```bash
+node dist/index.js bib --help
+```
+
+```output
+Usage: cite bib [options]
+
+Generate or update the bibliography section in a Google Doc
+
+Options:
+  --doc <docId>    Google Doc ID
+  --style <style>  Citation style override
+  --after <text>   Insert bibliography after this text (first time only)
+  --dry-run        Preview only, do not write
+  -y, --yes        Skip confirmation prompt
+  -h, --help       display help for command
+```
+
+#### Vancouver style (default):
+
+```bash
+node dist/index.js bib --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --dry-run
+```
+
+```output
+Bibliography preview:
+
+  1. Merrill MA, Sapir G. Non-experts can distinguish AI-generated from human writing in short health texts. Nature Communications. 2026. doi:10.1038/s41467-025-67922-y
+  2. Battelino T, Danne T, Bergenstal RM. Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range. Diabetes Care. 2019;42(8):1593-1603. doi:10.2337/dc19-1028
+  3. Broll S, Gaynanova I, Chun E. Interpreting blood GLUcose data with R package iglu. PLOS ONE. 2021;16(4). doi:10.1371/journal.pone.0248560
+  4. [ERROR: key "smith2023missing" not found in library]
+
+(dry-run mode — no changes made)
+```
+
+#### APA style:
+
+```bash
+node dist/index.js bib --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --style apa --dry-run
+```
+
+```output
+Bibliography preview:
+
+  Merrill, M. A., Sapir, G. (2026). Non-experts can distinguish AI-generated from human writing in short health texts. Nature Communications. https://doi.org/10.1038/s41467-025-67922-y
+  Battelino, T., Danne, T., Bergenstal, R. M. (2019). Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range. Diabetes Care, 42(8), 1593-1603. https://doi.org/10.2337/dc19-1028
+  Broll, S., Gaynanova, I., Chun, E. (2021). Interpreting blood GLUcose data with R package iglu. PLOS ONE, 16(4). https://doi.org/10.1371/journal.pone.0248560
+  4. [ERROR: key "smith2023missing" not found in library]
+
+(dry-run mode — no changes made)
+```
+
+#### IEEE style:
+
+```bash
+node dist/index.js bib --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --style ieee --dry-run
+```
+
+```output
+Bibliography preview:
+
+  [1] M. A. Merrill, G. Sapir, "Non-experts can distinguish AI-generated from human writing in short health texts," Nature Communications, 2026.
+  [2] T. Battelino, T. Danne, R. M. Bergenstal, "Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range," Diabetes Care, vol. 42, no. 8, pp. 1593-1603, 2019.
+  [3] S. Broll, I. Gaynanova, E. Chun, "Interpreting blood GLUcose data with R package iglu," PLOS ONE, vol. 16, no. 4, 2021.
+  4. [ERROR: key "smith2023missing" not found in library]
+
+(dry-run mode — no changes made)
+```
+
+### 11. `cite audit` — Document Health Check
+
+Compares citations in the document against the library, reports mismatches, numbering gaps, and orphaned entries.
+
+```bash
+node dist/index.js audit --doc 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no --offline
+```
+
+```output
+
+Document: "(offline mode)"
+Doc ID: 12Vw8AnI8t848aiSoUqRqz8rN17itcfzQuRtmwYHT4no
+Library: local
+Style: vancouver
+Last sync: 2026-03-12T10:30:00Z
+
+Citations tracked: 4
+Library matches: 3 ✓
+Missing from library: 1 ✗
+  [4] — key "smith2023missing" not found
+Numbering gaps: none
+
+Orphaned library entries (not cited): 1
+  - score2_2021 (SCORE2 working group, 2021)
+
+```
+
+The audit correctly identifies:
+- **3 valid citations** matching library entries
+- **1 missing key** (`smith2023missing` — not in library)
+- **No numbering gaps** (sequential 1-4)
+- **1 orphaned entry** (`score2_2021` — in library but not cited in this doc)
+
+### 12. Safety Layer
+
+The safety system ensures no accidental content deletion:
+- **Reverse-index batching**: Multiple insertions sorted highest-index-first so earlier indices remain valid
+- **RevisionId checking**: Detects concurrent edits and aborts if the doc changed since fetch
+- **Operation logging**: All mutations logged to `~/.cite/docs/{docId}.log`
+- **Preview-before-commit**: Every write shows context, index, and marker before executing
+- **Safe zones**: Only tool-managed ranges (bibliography) can be replaced; user content is insert-only
+
+### 13. Full Test Suite
+
+```bash
+npx vitest run 2>&1
+```
+
+```output
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/home/user/cite-and-write-cli[39m
+
+
+[2m Test Files [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m      Tests [22m [1m[32m38 passed[39m[22m[90m (38)[39m
+[2m   Start at [22m 14:26:56
+[2m   Duration [22m 867ms[2m (transform 239ms, setup 0ms, import 1.07s, tests 26ms, environment 0ms)[22m
+
+```
+
+---
+
+## Phase 2 Summary
+
+**Implemented:**
+- `cite insert` — Single/multi citation insertion with `--after` text search or `--paragraph` targeting, preview, auto-numbering, de-duplication
+- `cite bib` — Bibliography generation with 5 built-in styles (Vancouver, APA, Nature, IEEE, Chicago), `--dry-run` preview, named range management for updates
+- `cite audit` — Document health check: validates citations vs. library, reports missing keys, numbering gaps, orphaned entries
+- Safety layer: reverse-index request sorting, revisionId conflict detection, operation logging, preview-before-commit
+- Citation formatter: inline markers (`[N]`, `(Author, Year)`) and full bibliography entries for all 5 styles
+- 38 unit tests across 5 test files
+
+**Next: Phase 3** will add `cite import` (SciWheel, BibTeX), `cite sync`, and extended resolver paths (URL, PubMed, arXiv, free text).
