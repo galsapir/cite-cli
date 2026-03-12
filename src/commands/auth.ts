@@ -1,3 +1,6 @@
+// ABOUTME: CLI command for setting up authentication credentials.
+// ABOUTME: Handles Google OAuth2 and Zotero API key configuration.
+
 import { Command } from "commander";
 import { confirm, input } from "@inquirer/prompts";
 import { runGoogleAuthFlow } from "../lib/google-auth.js";

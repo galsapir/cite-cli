@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to audit citations in a Google Doc.
+// ABOUTME: Reports missing keys, numbering gaps, and orphaned entries.
+
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";

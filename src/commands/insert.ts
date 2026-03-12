@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to insert inline citations into a Google Doc.
+// ABOUTME: Supports text search and paragraph-based insertion with auto-numbering.
+
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";

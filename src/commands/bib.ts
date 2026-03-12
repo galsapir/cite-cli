@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to generate or update the bibliography in a Google Doc.
+// ABOUTME: Supports multiple citation styles with named range tracking for updates.
+
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";

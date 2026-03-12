@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to view and modify cite configuration.
+// ABOUTME: Supports global and per-doc settings via dot-notation keys.
+
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig, updateConfig } from "../lib/config.js";

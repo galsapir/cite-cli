@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to search the local citation library.
+// ABOUTME: Supports filtering by author, year, tag, and free-text query.
+
 import { Command } from "commander";
 import chalk from "chalk";
 import { searchLibrary, loadLibrary } from "../lib/library.js";

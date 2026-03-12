@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+// ABOUTME: Entry point for the cite CLI.
+// ABOUTME: Registers all commands and initializes the config directory.
 
 import { Command } from "commander";
 import { registerAuthCommands } from "./commands/auth.js";

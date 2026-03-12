@@ -1,3 +1,6 @@
+// ABOUTME: Resolves identifiers (DOI, PMID, arXiv, URL, title) to CSL-JSON.
+// ABOUTME: Uses CrossRef, PubMed, arXiv, and Semantic Scholar APIs.
+
 import type { CslJson, IdentifierType, ResolvedReference } from "../types/index.js";
 import { generateCiteKey } from "./library.js";
 import { fetchWithTimeout } from "./fetch-with-timeout.js";

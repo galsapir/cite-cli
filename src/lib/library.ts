@@ -1,3 +1,6 @@
+// ABOUTME: Local citation library stored as JSON in ~/.cite/libraries/.
+// ABOUTME: Handles CRUD operations, search, and cite-key generation.
+
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";

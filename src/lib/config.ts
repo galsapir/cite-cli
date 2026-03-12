@@ -1,3 +1,6 @@
+// ABOUTME: Manages the ~/.cite/ directory and config.yaml settings.
+// ABOUTME: Provides load/save/update for global configuration.
+
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";

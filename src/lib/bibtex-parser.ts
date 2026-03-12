@@ -1,3 +1,6 @@
+// ABOUTME: Parsers for BibTeX and RIS citation formats.
+// ABOUTME: Converts entries to CSL-JSON for storage in the local library.
+
 import type { CslJson } from "../types/index.js";
 
 /**

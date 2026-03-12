@@ -1,3 +1,6 @@
+// ABOUTME: Zotero API integration for syncing and adding references.
+// ABOUTME: Handles auth, item conversion between CSL-JSON and Zotero format.
+
 import { loadConfig, updateConfig } from "./config.js";
 import type { CslJson, LibraryEntry } from "../types/index.js";
 import { generateCiteKey } from "./library.js";

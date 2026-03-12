@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to remove a citation from a Google Doc.
+// ABOUTME: Handles marker deletion and renumbering of remaining citations.
+
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
