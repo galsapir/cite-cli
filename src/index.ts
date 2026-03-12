@@ -5,6 +5,9 @@ import { registerAuthCommands } from "./commands/auth.js";
 import { registerAddCommand } from "./commands/add.js";
 import { registerSearchCommand } from "./commands/search.js";
 import { registerInitCommand } from "./commands/init.js";
+import { registerInsertCommand } from "./commands/insert.js";
+import { registerBibCommand } from "./commands/bib.js";
+import { registerAuditCommand } from "./commands/audit.js";
 import { ensureCiteDir } from "./lib/config.js";
 
 const program = new Command();
@@ -19,6 +22,9 @@ registerAuthCommands(program);
 registerAddCommand(program);
 registerSearchCommand(program);
 registerInitCommand(program);
+registerInsertCommand(program);
+registerBibCommand(program);
+registerAuditCommand(program);
 
 // Ensure ~/.cite directory structure exists
 await ensureCiteDir();
