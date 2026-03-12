@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to add references by DOI, PMID, arXiv ID, URL, or title.
+// ABOUTME: Resolves metadata via external APIs and stores in local library.
+
 import { Command } from "commander";
 import { confirm, select } from "@inquirer/prompts";
 import chalk from "chalk";

@@ -1,3 +1,6 @@
+// ABOUTME: CLI commands to import references from BibTeX, RIS, and SciWheel.
+// ABOUTME: Parses external formats and adds entries to the local library.
+
 import { Command } from "commander";
 import { confirm, input } from "@inquirer/prompts";
 import chalk from "chalk";

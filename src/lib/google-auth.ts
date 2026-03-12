@@ -1,3 +1,6 @@
+// ABOUTME: Google OAuth2 authentication flow for the Docs API.
+// ABOUTME: Runs a local HTTP server to capture the OAuth callback.
+
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";

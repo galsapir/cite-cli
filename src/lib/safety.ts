@@ -1,3 +1,6 @@
+// ABOUTME: Safety utilities for Google Docs batch updates.
+// ABOUTME: Reverse-index sorting, revision checks, operation logging, and previews.
+
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getCiteDir, ensureCiteDir } from "./config.js";

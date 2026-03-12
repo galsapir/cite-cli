@@ -1,3 +1,6 @@
+// ABOUTME: Terminal display formatting for references and library entries.
+// ABOUTME: Provides author/year formatting helpers used across the CLI.
+
 import chalk from "chalk";
 import type { CslJson, LibraryEntry } from "../types/index.js";
 

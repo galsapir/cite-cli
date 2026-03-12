@@ -1,3 +1,6 @@
+// ABOUTME: Manages per-document citation state (citations, style, sync info).
+// ABOUTME: Persists state as JSON files in ~/.cite/docs/.
+
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";

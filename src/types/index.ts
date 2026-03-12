@@ -1,3 +1,6 @@
+// ABOUTME: TypeScript type definitions for the cite CLI.
+// ABOUTME: Covers CSL-JSON, library entries, doc state, config, and identifiers.
+
 /** CSL-JSON reference metadata */
 export interface CslJson {
   id: string;

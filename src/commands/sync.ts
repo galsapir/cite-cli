@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to sync references between local library and Zotero.
+// ABOUTME: Fetches Zotero items and deduplicates by DOI.
+
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig } from "../lib/config.js";

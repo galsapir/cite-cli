@@ -1,3 +1,6 @@
+// ABOUTME: Google Docs API client for fetching and modifying documents.
+// ABOUTME: Provides text extraction, search, and batch update operations.
+
 import { google, type docs_v1 } from "googleapis";
 import { getGoogleAuth } from "./google-auth.js";
 

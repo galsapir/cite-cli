@@ -1,3 +1,6 @@
+// ABOUTME: CLI command to initialize a Google Doc for citation management.
+// ABOUTME: Creates doc state with library binding and citation style.
+
 import { Command } from "commander";
 import chalk from "chalk";
 import { initDocState } from "../lib/doc-state.js";
