@@ -573,3 +573,162 @@ npx vitest run 2>&1
 - 38 unit tests across 5 test files
 
 **Next: Phase 3** will add `cite import` (SciWheel, BibTeX), `cite sync`, and extended resolver paths (URL, PubMed, arXiv, free text).
+
+---
+
+## Phase 3: Import & Collaboration
+
+Phase 3 adds `cite import` (BibTeX, RIS, SciWheel) and `cite sync` for Zotero cloud synchronization.
+
+### 14. `cite import bibtex` — Import from BibTeX Files
+
+Parses BibTeX into CSL-JSON, generates cite-keys, and adds to the local library.
+
+```bash
+node dist/index.js import bibtex --help
+```
+
+```output
+Usage: cite import bibtex [options] <file>
+
+Import references from a BibTeX file
+
+Arguments:
+  file            Path to BibTeX file
+
+Options:
+  --library <id>  Target library (overrides default)
+  -y, --yes       Skip confirmation prompt
+  -h, --help      display help for command
+```
+
+```bash
+node dist/index.js import bibtex test/fixtures/sample.bib --yes
+```
+
+```output
+Found 3 references in test/fixtures/sample.bib:
+
+  Lundberg & Lee (2017)  "A Unified Approach to Interpreting Model Predictions"  Advances in Neural Information Processing Systems
+  Monteiro & Cannon (2016)  "Ultra-processed foods and diet quality"  Public Health Nutrition  DOI: 10.1017/S1368980015002529
+  Off & Garcia (2024)  "Machine learning for diabetes risk prediction"  AMIA Annual Symposium Proceedings
+
+Importing 3 references to library "local"...
+  ✓ [lundberg2017] A Unified Approach to Interpreting Model Predictions
+  ✓ [monteiro2016] Ultra-processed foods and diet quality
+  ✓ [off2024] Machine learning for diabetes risk prediction
+
+Import complete: 3 added, 0 failed
+```
+
+### 15. `cite import ris` — Import from RIS Files
+
+```bash
+node dist/index.js import ris test/fixtures/sample.ris --yes
+```
+
+```output
+Found 2 references in test/fixtures/sample.ris:
+
+  Chen & Zhang (2023)  "Deep learning in healthcare: A systematic review"  Nature Medicine  DOI: 10.1038/s41591-023-02345-0
+  Park (2022)  "Wearable sensors for continuous health monitoring"  Sensors  DOI: 10.3390/s22155678
+
+Importing 2 references to library "local"...
+  ✓ [chen2023] Deep learning in healthcare: A systematic review
+  ✓ [park2022] Wearable sensors for continuous health monitoring
+
+Import complete: 2 added, 0 failed
+```
+
+### 16. Library After Import
+
+The library now contains all seeded + imported references:
+
+```bash
+node dist/index.js search
+```
+
+```output
+9 entries in library "local":
+
+  [battelino2019]  Battelino et al. (2019)  "Clinical Targets for Continuous Glucose Monitoring Data Interpretation: Recommendations From the International Consensus on Time in Range"  Diabetes Care  DOI: 10.2337/dc19-1028
+  [broll2021]  Broll et al. (2021)  "Interpreting blood GLUcose data with R package iglu"  PLOS ONE  DOI: 10.1371/journal.pone.0248560
+  [score2_2021]  SCORE2 working group (2021)  "SCORE2 risk prediction algorithms: new models to estimate 10-year risk of cardiovascular disease in Europe"  European Heart Journal  DOI: 10.1093/eurheartj/ehab309
+  [merrill2026]  Merrill & Sapir (2026)  "Non-experts can distinguish AI-generated from human writing in short health texts"  Nature Communications  DOI: 10.1038/s41467-025-67922-y
+  [lundberg2017]  Lundberg & Lee (2017)  "A Unified Approach to Interpreting Model Predictions"  Advances in Neural Information Processing Systems
+  [monteiro2016]  Monteiro & Cannon (2016)  "Ultra-processed foods and diet quality"  Public Health Nutrition  DOI: 10.1017/S1368980015002529
+  [off2024]  Off & Garcia (2024)  "Machine learning for diabetes risk prediction"  AMIA Annual Symposium Proceedings
+  [chen2023]  Chen & Zhang (2023)  "Deep learning in healthcare: A systematic review"  Nature Medicine  DOI: 10.1038/s41591-023-02345-0
+  [park2022]  Park (2022)  "Wearable sensors for continuous health monitoring"  Sensors  DOI: 10.3390/s22155678
+```
+
+### 17. `cite import sciwheel` — SciWheel Migration
+
+The SciWheel import fetches BibTeX from the SciWheel API and processes it the same way:
+
+```bash
+node dist/index.js import sciwheel --help
+```
+
+```output
+Usage: cite import sciwheel [options]
+
+One-time import from SciWheel project (exports as BibTeX)
+
+Options:
+  --project <id>   SciWheel project ID
+  --token <token>  SciWheel API bearer token
+  --library <id>   Target library (overrides default)
+  -y, --yes        Skip confirmation prompt
+  -h, --help       display help for command
+```
+
+### 18. `cite sync` — Zotero Cloud Sync
+
+Synchronizes the local JSON mirror with the Zotero cloud library. Merges remote entries by DOI deduplication.
+
+```bash
+node dist/index.js sync --help
+```
+
+```output
+Usage: cite sync [options]
+
+Sync local library mirror with Zotero cloud
+
+Options:
+  --library <id>  Library to sync (overrides default)
+  -h, --help      display help for command
+```
+
+### 19. Test Suite — All Phases
+
+```bash
+npx vitest run 2>&1
+```
+
+```output
+
+[1m[46m RUN [49m[22m [36mv4.1.0 [39m[90m/home/user/cite-and-write-cli[39m
+
+
+[2m Test Files [22m [1m[32m6 passed[39m[22m[90m (6)[39m
+[2m      Tests [22m [1m[32m45 passed[39m[22m[90m (45)[39m
+[2m   Start at [22m 14:30:42
+[2m   Duration [22m 1.03s[2m (transform 311ms, setup 0ms, import 1.10s, tests 35ms, environment 1ms)[22m
+
+```
+
+---
+
+## Phase 3 Summary
+
+**Implemented:**
+- `cite import bibtex` — Parse BibTeX files into CSL-JSON, auto-generate cite-keys, add to library
+- `cite import ris` — Parse RIS files the same way
+- `cite import sciwheel` — One-time SciWheel project export via API → BibTeX → library
+- `cite sync` — Bidirectional Zotero ↔ local mirror sync with DOI-based deduplication
+- BibTeX and RIS parsers with LaTeX markup cleaning
+- 45 unit tests across 6 test files (7 new for parsers)
+
+**Next: Phase 4** will add polish features: batch DOI file import, citation removal with renumbering, fuzzy matching, --dry-run and --yes flags on all commands, and style switching.
