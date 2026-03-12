@@ -6,7 +6,7 @@ import { loadLibrary, findInLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js";
 import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation, type CitationStyle } from "../lib/formatter.js";
-import { sortRequestsReverseIndex, formatInsertPreview, logOperation } from "../lib/safety.js";
+import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson } from "../types/index.js";
@@ -64,6 +64,16 @@ export function registerInsertCommand(program: Command): void {
       console.log("Fetching document...");
       const doc = await fetchDoc(opts.doc);
       console.log(`  Document: "${doc.title}" (rev: ${doc.revisionId.slice(0, 8)}...)`);
+
+      // Check for concurrent edits since last operation
+      if (docState.revisionId && !checkRevisionId(docState.revisionId, doc.revisionId)) {
+        console.log(
+          chalk.yellow(
+            "Warning: Document has been modified since last cite operation. " +
+            "Citation indices may be stale.",
+          ),
+        );
+      }
 
       // Determine insertion point
       let insertIndex: number;
@@ -176,6 +186,7 @@ export function registerInsertCommand(program: Command): void {
       // Update doc state
       docState.citations.push(...newCitations);
       docState.lastSync = new Date().toISOString();
+      docState.revisionId = doc.revisionId;
       await saveDocState(docState);
 
       // Log the operation
