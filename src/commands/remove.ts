@@ -5,7 +5,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation, type CitationStyle } from "../lib/formatter.js";
-import { logOperation } from "../lib/safety.js";
+import { logOperation, checkRevisionId } from "../lib/safety.js";
 import { formatReference } from "../lib/format.js";
 import type { docs_v1 } from "googleapis";
 
@@ -78,6 +78,16 @@ export function registerRemoveCommand(program: Command): void {
       // Fetch the document
       console.log("Fetching document...");
       const doc = await fetchDoc(opts.doc);
+
+      if (docState.revisionId && !checkRevisionId(docState.revisionId, doc.revisionId)) {
+        console.log(
+          chalk.yellow(
+            "Warning: Document has been modified since last cite operation. " +
+            "Citation positions may be stale.",
+          ),
+        );
+      }
+
       const text = extractText(doc.body);
 
       const style = docState.style as CitationStyle;
@@ -158,6 +168,7 @@ export function registerRemoveCommand(program: Command): void {
           index: c.index > citation.index ? c.index - 1 : c.index,
         }));
       docState.lastSync = new Date().toISOString();
+      docState.revisionId = doc.revisionId;
       await saveDocState(docState);
 
       await logOperation(

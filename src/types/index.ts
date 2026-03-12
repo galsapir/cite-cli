@@ -36,6 +36,7 @@ export interface DocState {
   citations: CitationEntry[];
   bibNamedRange?: string;
   lastSync: string;
+  revisionId?: string;
 }
 
 export interface CitationEntry {
