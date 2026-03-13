@@ -1,15 +1,16 @@
 // ABOUTME: CLI command to remove a citation from a Google Doc.
-// ABOUTME: Handles marker deletion and renumbering of remaining citations.
+// ABOUTME: Uses named ranges for reliable marker location and handles renumbering.
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
-import { fetchDoc, extractText, batchUpdate } from "../lib/google-docs.js";
+import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
-import { logOperation, checkRevisionId, sortRequestsReverseIndex, validateBatchRequests } from "../lib/safety.js";
+import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import { formatReference } from "../lib/format.js";
+import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 
 export function registerRemoveCommand(program: Command): void {
@@ -92,100 +93,210 @@ export function registerRemoveCommand(program: Command): void {
       }
 
       const text = extractText(doc.body);
-
       const style = docState.style;
-      const requests: docs_v1.Schema$Request[] = [];
 
-      // Find and remove the citation marker in the document
-      const oldMarker = formatInlineCitation(
-        [citation.index],
-        style,
-        libEntry ? [libEntry.csl] : [],
-      );
-
-      // Search for the marker (with potential leading space)
-      const markerWithSpace = ` ${oldMarker}`;
-      let markerIdx = text.indexOf(markerWithSpace);
-      let markerLen = markerWithSpace.length;
-
-      if (markerIdx === -1) {
-        markerIdx = text.indexOf(oldMarker);
-        markerLen = oldMarker.length;
+      // Collect all operations: each is a set of requests at a specific
+      // document position. We'll sort by reverse position before building
+      // the final request array.
+      interface PositionedOp {
+        position: number; // sort key (reverse order)
+        requests: docs_v1.Schema$Request[];
       }
+      const ops: PositionedOp[] = [];
 
-      if (markerIdx >= 0) {
-        // +1 because doc body starts at index 1
-        const startIdx = markerIdx + 1;
-        requests.push({
-          deleteContentRange: {
-            range: {
-              startIndex: startIdx,
-              endIndex: startIdx + markerLen,
-            },
-          },
-        });
-      } else {
-        console.log(
-          chalk.yellow(
-            `Warning: Citation marker "${oldMarker}" not found in document text. ` +
-            `State will be updated but document text was not modified.`,
-          ),
-        );
-      }
+      // --- Remove the target citation's occurrences ---
+      const removeOccurrences = findCitationOccurrences(doc.namedRanges, opts.key);
 
-      // Renumber higher citations using position-based replacement
-      // (replaceAllText would match non-citation text like "[5]" in prose)
-      for (const hc of higherCitations) {
-        const hcEntry = library.find((e) => e.key === hc.key);
-        const oldM = formatInlineCitation(
-          [hc.index],
-          style,
-          hcEntry ? [hcEntry.csl] : [],
-        );
-        const newM = formatInlineCitation(
-          [hc.index - 1],
-          style,
-          hcEntry ? [hcEntry.csl] : [],
-        );
+      if (removeOccurrences.length > 0) {
+        for (const occ of removeOccurrences) {
+          const reqs: docs_v1.Schema$Request[] = [];
 
-        const renumberIdx = text.indexOf(oldM);
-        if (renumberIdx >= 0) {
-          const renumberStart = renumberIdx + 1; // +1: doc body starts at index 1
-          requests.push({
+          // Delete the named range metadata
+          reqs.push({ deleteNamedRange: { namedRangeId: occ.namedRangeId } });
+
+          // Delete the content (include leading space if present)
+          let deleteStart = occ.startIndex;
+          if (occ.startIndex > 1 && text[occ.startIndex - 2] === " ") {
+            deleteStart = occ.startIndex - 1; // include leading space
+          }
+          reqs.push({
             deleteContentRange: {
-              range: {
-                startIndex: renumberStart,
-                endIndex: renumberStart + oldM.length,
-              },
+              range: { startIndex: deleteStart, endIndex: occ.endIndex },
             },
           });
-          requests.push({
-            insertText: {
-              location: { index: renumberStart },
-              text: newM,
-            },
+
+          ops.push({ position: occ.startIndex, requests: reqs });
+        }
+      } else {
+        // Fallback: text search (backward compat with pre-named-range citations)
+        const oldMarker = formatInlineCitation(
+          [citation.index],
+          style,
+          libEntry ? [libEntry.csl] : [],
+        );
+
+        const markerWithSpace = ` ${oldMarker}`;
+        let markerIdx = text.indexOf(markerWithSpace);
+        let markerLen = markerWithSpace.length;
+
+        if (markerIdx === -1) {
+          markerIdx = text.indexOf(oldMarker);
+          markerLen = oldMarker.length;
+        }
+
+        if (markerIdx >= 0) {
+          const startIdx = markerIdx + 1; // +1: doc body starts at index 1
+          ops.push({
+            position: startIdx,
+            requests: [{
+              deleteContentRange: {
+                range: { startIndex: startIdx, endIndex: startIdx + markerLen },
+              },
+            }],
           });
         } else {
           console.log(
             chalk.yellow(
-              `Warning: Marker "${oldM}" not found for renumbering (key: ${hc.key}).`,
+              `Warning: Citation marker "${oldMarker}" not found in document text. ` +
+              `State will be updated but document text was not modified.`,
             ),
           );
         }
       }
 
-      // Sort in reverse index order so later positions are processed first,
-      // preventing earlier deletions from shifting subsequent indices
-      if (requests.length > 0) {
-        const sortedRequests = sortRequestsReverseIndex(requests);
+      // --- Renumber higher citations ---
+      for (const hc of higherCitations) {
+        const hcEntry = library.find((e) => e.key === hc.key);
+        const oldMarkerText = formatInlineCitation(
+          [hc.index],
+          style,
+          hcEntry ? [hcEntry.csl] : [],
+        );
+        const newMarkerText = formatInlineCitation(
+          [hc.index - 1],
+          style,
+          hcEntry ? [hcEntry.csl] : [],
+        );
 
-        // Pre-write safety validation
-        validateBatchRequests(sortedRequests, doc.body);
+        const hcOccurrences = findCitationOccurrences(doc.namedRanges, hc.key);
 
-        await batchUpdate(opts.doc, sortedRequests);
+        if (hcOccurrences.length > 0) {
+          for (const occ of hcOccurrences) {
+            const reqs: docs_v1.Schema$Request[] = [];
+
+            // Delete old named range
+            reqs.push({ deleteNamedRange: { namedRangeId: occ.namedRangeId } });
+
+            // Delete old text
+            reqs.push({
+              deleteContentRange: {
+                range: { startIndex: occ.startIndex, endIndex: occ.endIndex },
+              },
+            });
+
+            // Insert new text at the same position
+            reqs.push({
+              insertText: {
+                location: { index: occ.startIndex },
+                text: newMarkerText,
+              },
+            });
+
+            // Recreate named range
+            reqs.push({
+              createNamedRange: {
+                name: `${CITE_RANGE_PREFIX}${hc.key}`,
+                range: {
+                  startIndex: occ.startIndex,
+                  endIndex: occ.startIndex + newMarkerText.length,
+                },
+              },
+            });
+
+            // Restore hyperlink
+            const linkKeys = hc.key;
+            reqs.push({
+              updateTextStyle: {
+                range: {
+                  startIndex: occ.startIndex,
+                  endIndex: occ.startIndex + newMarkerText.length,
+                },
+                textStyle: { link: { url: `${CITE_LINK_PREFIX}${linkKeys}` } },
+                fields: "link",
+              },
+            });
+
+            ops.push({ position: occ.startIndex, requests: reqs });
+          }
+        } else {
+          // Fallback: text search
+          const renumberIdx = text.indexOf(oldMarkerText);
+          if (renumberIdx >= 0) {
+            const renumberStart = renumberIdx + 1; // +1: doc body starts at index 1
+            ops.push({
+              position: renumberStart,
+              requests: [
+                {
+                  deleteContentRange: {
+                    range: { startIndex: renumberStart, endIndex: renumberStart + oldMarkerText.length },
+                  },
+                },
+                {
+                  insertText: {
+                    location: { index: renumberStart },
+                    text: newMarkerText,
+                  },
+                },
+              ],
+            });
+          } else {
+            console.log(
+              chalk.yellow(
+                `Warning: Marker "${oldMarkerText}" not found for renumbering (key: ${hc.key}).`,
+              ),
+            );
+          }
+        }
       }
 
-      // Update doc state
+      // Sort operations by reverse position (highest first) to prevent
+      // earlier operations from shifting indices of later ones.
+      // Within each operation, requests are already in the correct order.
+      ops.sort((a, b) => b.position - a.position);
+
+      const allRequests = ops.flatMap((op) => op.requests);
+
+      if (allRequests.length > 0) {
+        // Clear stale namedRangeIds for renumbered citations before the
+        // batch update — they'll be repopulated from replies.
+        for (const hc of higherCitations) {
+          const entry = docState.citations.find((c) => c.key === hc.key);
+          if (entry) entry.namedRangeIds = [];
+        }
+
+        // Pre-write safety validation
+        validateBatchRequests(allRequests, doc.body);
+
+        const replies = await batchUpdate(opts.doc, allRequests);
+
+        // Extract new namedRangeIds for renumbered citations from replies
+        for (let i = 0; i < allRequests.length; i++) {
+          const req = allRequests[i];
+          const reply = replies[i];
+          if (req.createNamedRange && reply?.createNamedRange?.namedRangeId) {
+            const rangeName = req.createNamedRange.name || "";
+            if (rangeName.startsWith(CITE_RANGE_PREFIX)) {
+              const key = rangeName.slice(CITE_RANGE_PREFIX.length);
+              const entry = docState.citations.find((c) => c.key === key);
+              if (entry) {
+                if (!entry.namedRangeIds) entry.namedRangeIds = [];
+                entry.namedRangeIds.push(reply.createNamedRange.namedRangeId);
+              }
+            }
+          }
+        }
+      }
+
       docState.citations = docState.citations
         .filter((c) => c.key !== opts.key)
         .map((c) => ({

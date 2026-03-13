@@ -46,6 +46,12 @@ export interface CitationEntry {
   index: number;
   key: string;
   location: string;
+  namedRangeIds?: string[]; // Google Docs named range IDs for each occurrence of this marker
+}
+
+/** Per-library settings */
+export interface LibraryConfig {
+  collection?: string; // Default Zotero collection name for this library
 }
 
 /** Global config (~/.cite/config.yaml) */
@@ -64,7 +70,14 @@ export interface CiteConfig {
     confirmBeforeWrite?: boolean;
     autoSyncBib?: boolean;
   };
+  libraries?: Record<string, LibraryConfig>;
 }
+
+/** URL prefix for citation hyperlinks (survives copy/paste as a durability fallback) */
+export const CITE_LINK_PREFIX = "https://cite-cli.local/ref/";
+
+/** Named range prefix for inline citations */
+export const CITE_RANGE_PREFIX = "cite:";
 
 /** Supported citation styles */
 export type CitationStyle = "vancouver" | "apa" | "nature" | "ieee" | "chicago-author-date";
