@@ -132,15 +132,15 @@ export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   const summary = getTag("summary", entry).replace(/\n\s+/g, " ");
   const published = getTag("published", entry);
 
-  // Extract authors
-  const authorMatches = xml.matchAll(/<author>\s*<name>([^<]+)<\/name>/g);
+  // Extract authors from entry scope
+  const authorMatches = entry.matchAll(/<author>\s*<name>([^<]+)<\/name>/g);
   const authors: CslJson["author"] = [];
   for (const m of authorMatches) {
     authors.push(parseName(m[1]));
   }
 
-  // Extract DOI if present
-  const doiMatch = xml.match(
+  // Extract DOI if present (from entry scope)
+  const doiMatch = entry.match(
     /<link[^>]*href="https?:\/\/dx\.doi\.org\/([^"]+)"/,
   );
 
@@ -167,12 +167,14 @@ export async function searchByTitle(
 ): Promise<CslJson[]> {
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,externalIds,journal,abstract`;
 
-  const maxRetries = 3;
+  const maxAttempts = 4;
   let resp: Response | undefined;
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     resp = await fetchWithTimeout(url);
     if (resp.status !== 429) break;
-    if (attempt < maxRetries) {
+    // Drain the body to avoid connection/memory leaks
+    await resp.text();
+    if (attempt < maxAttempts - 1) {
       const delayMs = 1000 * 2 ** attempt;
       await new Promise((r) => setTimeout(r, delayMs));
     }
@@ -182,7 +184,7 @@ export async function searchByTitle(
     const status = resp?.status ?? 0;
     const statusText = resp?.statusText ?? "Unknown";
     const msg = status === 429
-      ? `Semantic Scholar rate limit exceeded after ${maxRetries + 1} attempts`
+      ? `Semantic Scholar rate limit exceeded after ${maxAttempts} attempts`
       : `Semantic Scholar search failed: ${status} ${statusText}`;
     throw new Error(msg);
   }

@@ -57,17 +57,19 @@ describe("normalizeDoi", () => {
   });
 });
 
+// All resolver tests mock global fetch
+const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn());
+});
+
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  vi.useRealTimers();
+});
+
 describe("resolvePmid", () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   it("uses the new pmc.ncbi.nlm.nih.gov endpoint", async () => {
     const fakeCsl = { title: "Test", author: [] };
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -83,16 +85,6 @@ describe("resolvePmid", () => {
 });
 
 describe("resolveArxiv", () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   it("extracts the paper title, not the feed title", async () => {
     const arxivXml = `<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
@@ -115,16 +107,6 @@ describe("resolveArxiv", () => {
 });
 
 describe("searchByTitle", () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   it("retries on 429 rate limit", async () => {
     vi.useFakeTimers();
     const rateLimitResp = new Response(null, { status: 429, statusText: "Too Many Requests" });
@@ -143,36 +125,23 @@ describe("searchByTitle", () => {
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("Test Paper");
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
-    vi.useRealTimers();
   });
 
-  it("gives up after max retries", async () => {
+  it("gives up after max attempts", async () => {
     vi.useFakeTimers();
     const rateLimitResp = new Response(null, { status: 429, statusText: "Too Many Requests" });
     vi.mocked(fetch)
       .mockResolvedValue(rateLimitResp);
 
-    // Attach the rejection handler before advancing timers
     const promise = searchByTitle("test query").catch((e: Error) => e);
     await vi.advanceTimersByTimeAsync(10_000);
     const error = await promise;
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toMatch(/rate limit/i);
-    vi.useRealTimers();
   });
 });
 
 describe("resolveDoi error handling", () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-  });
-
   it("throws on non-OK response", async () => {
     const { resolveDoi } = await import("../src/lib/resolver.js");
     vi.mocked(fetch).mockResolvedValueOnce(
