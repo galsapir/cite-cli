@@ -3,6 +3,7 @@ import {
   detectIdentifierType,
   normalizeDoi,
   resolvePmid,
+  resolvePmcid,
   resolveArxiv,
   searchByTitle,
   canonicalIds,
@@ -130,6 +131,51 @@ describe("resolvePmid", () => {
     const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
     expect(calledUrl).toContain("pmc.ncbi.nlm.nih.gov");
     expect(calledUrl).not.toContain("api.ncbi.nlm.nih.gov");
+  });
+});
+
+describe("resolvePmcid", () => {
+  it("converts PMCID to PMID via NCBI API then resolves", async () => {
+    // First call: NCBI ID converter returns PMID
+    const converterXml = `<?xml version="1.0"?>
+<pmcids status="ok">
+  <record requested-id="PMC12478425" pmcid="PMC12478425" pmid="40665053" />
+</pmcids>`;
+    // Second call: PubMed CSL endpoint returns metadata
+    const fakeCsl = { title: "Test Paper", author: [] };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(converterXml, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(fakeCsl), { status: 200 }));
+
+    const result = await resolvePmcid("PMC12478425");
+    expect(result.title).toBe("Test Paper");
+
+    // Verify first call was to NCBI converter
+    const converterUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(converterUrl).toContain("idconv");
+    expect(converterUrl).toContain("PMC12478425");
+
+    // Verify second call was to PubMed CSL endpoint
+    const pmidUrl = vi.mocked(fetch).mock.calls[1][0] as string;
+    expect(pmidUrl).toContain("40665053");
+  });
+
+  it("throws when PMCID has no corresponding PMID", async () => {
+    const converterXml = `<?xml version="1.0"?>
+<pmcids status="ok">
+  <record requested-id="PMC9999999" pmcid="PMC9999999" />
+</pmcids>`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(converterXml, { status: 200 }));
+
+    await expect(resolvePmcid("PMC9999999")).rejects.toThrow(/PMID/);
+  });
+
+  it("throws when NCBI converter returns error", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, { status: 500, statusText: "Internal Server Error" }),
+    );
+    await expect(resolvePmcid("PMC12478425")).rejects.toThrow(/NCBI/i);
   });
 });
 

@@ -151,6 +151,26 @@ export async function resolvePmid(pmidInput: string): Promise<CslJson> {
   return csl;
 }
 
+/** Resolve a PMC ID by converting to PMID via NCBI ID converter, then resolving */
+export async function resolvePmcid(pmcid: string): Promise<CslJson> {
+  const url = `https://www.ncbi.nlm.nih.gov/pmc/utils/idconv/v1.0/?ids=${pmcid}&format=xml`;
+  const resp = await fetchWithTimeout(url);
+
+  if (!resp.ok) {
+    throw new Error(
+      `NCBI ID converter failed for ${pmcid}: ${resp.status} ${resp.statusText}`,
+    );
+  }
+
+  const xml = await resp.text();
+  const pmidMatch = xml.match(/pmid="(\d+)"/);
+  if (!pmidMatch) {
+    throw new Error(`No PMID found for ${pmcid}`);
+  }
+
+  return resolvePmid(pmidMatch[1]);
+}
+
 /** Resolve an arXiv ID via arXiv API */
 export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   let arxivId = arxivInput.trim();
