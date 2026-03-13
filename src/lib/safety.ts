@@ -94,8 +94,8 @@ export function validateRequestBounds(
 
   for (let i = 0; i < requests.length; i++) {
     const req = requests[i];
-    // Skip structural requests that don't reference a position
-    if (req.deleteNamedRange || req.createNamedRange || req.replaceAllText) {
+    // Skip structural requests that don't need position bounds checking
+    if (req.deleteNamedRange || req.createNamedRange || req.replaceAllText || req.updateTextStyle) {
       continue;
     }
 

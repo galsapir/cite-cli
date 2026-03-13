@@ -132,11 +132,11 @@ export function findParagraph(
   return null;
 }
 
-/** Execute a batch update on a Google Doc */
+/** Execute a batch update on a Google Doc, returns per-request replies */
 export async function batchUpdate(
   docId: string,
   requests: docs_v1.Schema$Request[],
-): Promise<void> {
+): Promise<docs_v1.Schema$Response[]> {
   const auth = await getGoogleAuth();
   if (!auth) {
     throw new Error(
@@ -145,8 +145,9 @@ export async function batchUpdate(
   }
 
   const docs = google.docs({ version: "v1", auth });
-  await docs.documents.batchUpdate({
+  const res = await docs.documents.batchUpdate({
     documentId: docId,
     requestBody: { requests },
   });
+  return res.data.replies || [];
 }
