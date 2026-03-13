@@ -6,7 +6,7 @@ import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
-import { fetchDoc, findTextLocation, batchUpdate } from "../lib/google-docs.js";
+import { fetchDoc, findTextLocation, batchUpdate, findAllCitationOccurrences } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests, getBodyEndIndex } from "../lib/safety.js";
 import type { docs_v1 } from "googleapis";
@@ -88,6 +88,22 @@ export function registerBibCommand(program: Command): void {
         console.log(
           chalk.yellow(
             "Warning: Document has been modified since last cite operation.",
+          ),
+        );
+      }
+
+      // Cross-check: verify citation named ranges exist in the document
+      const docCitations = findAllCitationOccurrences(doc.namedRanges);
+      const docCitationKeys = new Set(docCitations.map((c) => c.key));
+      const stateKeys = new Set(docState.citations.map((c) => c.key));
+
+      const missingRanges = [...stateKeys].filter((k) => !docCitationKeys.has(k));
+      if (missingRanges.length > 0) {
+        console.log(
+          chalk.yellow(
+            `Warning: ${missingRanges.length} citation(s) tracked in state but missing named ranges in document: ` +
+            missingRanges.join(", ") +
+            `\nRun 'cite refresh --doc ${opts.doc}' to repair.`,
           ),
         );
       }
