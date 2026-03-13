@@ -31,6 +31,7 @@ cite add "Attention is all you need"         # Title search (Semantic Scholar)
 | `--file <path>` | Batch add from a file (one identifier per line) |
 | `--bibtex <path>` | Import from a BibTeX file |
 | `--library <id>` | Target library (overrides default) |
+| `--collection <name>` | Zotero collection to add to |
 | `-y, --yes` | Skip confirmation prompt |
 
 ## search
@@ -151,6 +152,32 @@ Reports:
 | `--doc <id>` | **(required)** Google Doc ID |
 | `--offline` | Audit local state only (skip doc fetch) |
 
+## refresh
+
+Repair citations after document reorganization (copy/paste, paragraph moves).
+
+```bash
+cite refresh --doc <DOC_ID> --dry-run   # preview changes
+cite refresh --doc <DOC_ID>             # apply
+```
+
+This command:
+1. Reads all `cite:*` named ranges in the document
+2. Scans hyperlinks matching `cite-cli.local/ref/*` for pasted citations that lost their named ranges
+3. Reconstructs missing named ranges from hyperlinks
+4. Renumbers all citations in document order (first-appearance numbering)
+5. Rebuilds doc state
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--doc <id>` | **(required)** Google Doc ID |
+| `--dry-run` | Preview without writing |
+| `-y, --yes` | Skip confirmation |
+
+**When to use:** After reorganizing a document (moving paragraphs, copy/paste between docs), or when `cite audit` reports numbering gaps or untracked markers.
+
 ## import
 
 Import references from external sources.
@@ -171,6 +198,7 @@ See [importing.md](importing.md) for detailed import instructions.
 |------|-------------|
 | `<file>` | **(required)** Path to BibTeX file |
 | `--library <id>` | Target library |
+| `--collection <name>` | Zotero collection to add to |
 | `-y, --yes` | Skip confirmation |
 
 ### import ris
@@ -179,6 +207,7 @@ See [importing.md](importing.md) for detailed import instructions.
 |------|-------------|
 | `<file>` | **(required)** Path to RIS file |
 | `--library <id>` | Target library |
+| `--collection <name>` | Zotero collection to add to |
 | `-y, --yes` | Skip confirmation |
 
 ### import sciwheel
@@ -188,6 +217,7 @@ See [importing.md](importing.md) for detailed import instructions.
 | `--project <id>` | SciWheel project ID |
 | `--token <token>` | SciWheel API bearer token |
 | `--library <id>` | Target library |
+| `--collection <name>` | Zotero collection to add to |
 | `-y, --yes` | Skip confirmation |
 
 ## sync
@@ -197,6 +227,7 @@ Sync the local library with Zotero cloud.
 ```bash
 cite sync
 cite sync --library group/12345
+cite sync --collection pha-preprint   # sync only items from this collection
 ```
 
 Fetches entries from Zotero, merges by DOI and Zotero key, and preserves local-only entries.
@@ -206,6 +237,7 @@ Fetches entries from Zotero, merges by DOI and Zotero key, and preserves local-o
 | Flag | Description |
 |------|-------------|
 | `--library <id>` | Library to sync |
+| `--collection <name>` | Sync only items from this Zotero collection |
 
 ## remove
 
