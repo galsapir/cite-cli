@@ -5,7 +5,7 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { loadConfig } from "../lib/config.js";
 import { loadLibrary, saveLibrary, generateCiteKey } from "../lib/library.js";
-import { fetchZoteroLibrary } from "../lib/zotero.js";
+import { fetchZoteroLibrary, fetchZoteroCollectionItems, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import type { LibraryEntry } from "../types/index.js";
 
 export function registerSyncCommand(program: Command): void {
@@ -13,6 +13,7 @@ export function registerSyncCommand(program: Command): void {
     .command("sync")
     .description("Sync local library mirror with Zotero cloud")
     .option("--library <id>", "Library to sync (overrides default)")
+    .option("--collection <name>", "Sync only items from this Zotero collection")
     .action(async (opts) => {
       const config = await loadConfig();
       const libraryId =
@@ -34,12 +35,22 @@ export function registerSyncCommand(program: Command): void {
         process.exit(1);
       }
 
-      console.log(`Syncing library "${libraryId}" with Zotero...`);
+      // Resolve collection filter
+      const collectionName = await getCollectionName(libraryId, opts.collection);
+      let collectionKey: string | undefined;
+      if (collectionName) {
+        collectionKey = await resolveCollectionKey(libraryId, collectionName);
+      }
+
+      const source = collectionKey ? `collection "${collectionName}"` : "Zotero";
+      console.log(`Syncing library "${libraryId}" with ${source}...`);
 
       try {
-        // Fetch from Zotero
-        const remoteEntries = await fetchZoteroLibrary(libraryId);
-        console.log(`  Zotero: ${remoteEntries.length} entries`);
+        // Fetch from Zotero (full library or single collection)
+        const remoteEntries = collectionKey
+          ? await fetchZoteroCollectionItems(libraryId, collectionKey)
+          : await fetchZoteroLibrary(libraryId);
+        console.log(`  ${source}: ${remoteEntries.length} entries`);
 
         // Load local
         const localEntries = await loadLibrary(libraryId);
