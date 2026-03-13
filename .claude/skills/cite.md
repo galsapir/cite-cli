@@ -36,8 +36,8 @@ cite bib --doc <DOC_ID>                         # subsequent: updates in-place
 ### cite add
 Add a reference by DOI, PMID, arXiv ID, URL, or title.
 ```bash
-cite add <identifier> [--key <key>] [--library <id>] [-y]
-cite add --file dois.txt          # batch add, one ID per line
+cite add <identifier> [--key <key>] [--library <id>] [--collection <name>] [-y]
+cite add --file dois.txt --collection pha-preprint   # batch add into a collection
 ```
 
 ### cite search
@@ -88,15 +88,16 @@ cite audit --doc <DOC_ID> --offline   # local state only
 ### cite import
 Import from BibTeX, RIS, or SciWheel.
 ```bash
-cite import bibtex refs.bib [--library <id>] [-y]
-cite import ris refs.ris [--library <id>] [-y]
-cite import sciwheel --project <ID> --token <TOKEN>
+cite import bibtex refs.bib [--library <id>] [--collection <name>] [-y]
+cite import ris refs.ris [--library <id>] [--collection <name>] [-y]
+cite import sciwheel --project <ID> --token <TOKEN> [--collection <name>]
 ```
 
 ### cite sync
 Sync local library with Zotero cloud. Merges by DOI/Zotero key.
 ```bash
 cite sync [--library <id>]
+cite sync --collection pha-preprint   # sync only items from this collection
 ```
 
 ### cite config
@@ -136,6 +137,11 @@ cite add --file papers.txt -y
 ```bash
 # If harris2020 is already [1], inserting it again reuses [1]
 cite insert --doc <DOC_ID> --key harris2020 --after "another sentence"
+```
+
+### Set a default collection per library
+```bash
+cite config set libraries.group/12345.collection pha-preprint
 ```
 
 ### Switch citation style

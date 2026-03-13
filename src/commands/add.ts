@@ -6,7 +6,7 @@ import { confirm, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { resolve, searchByTitle, detectIdentifierType } from "../lib/resolver.js";
 import { loadLibrary, addToLibrary, generateCiteKey } from "../lib/library.js";
-import { addToZotero } from "../lib/zotero.js";
+import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { loadConfig } from "../lib/config.js";
 import { formatReference } from "../lib/format.js";
 import type { CslJson, LibraryEntry } from "../types/index.js";
@@ -21,6 +21,7 @@ export function registerAddCommand(program: Command): void {
     .option("--file <path>", "Batch add from a file of DOIs (one per line)")
     .option("--bibtex <path>", "Import from BibTeX file")
     .option("--library <id>", "Target library (overrides default)")
+    .option("--collection <name>", "Zotero collection to add to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (identifier: string | undefined, opts) => {
       const config = await loadConfig();
@@ -31,8 +32,16 @@ export function registerAddCommand(program: Command): void {
       const entries = await loadLibrary(libraryId);
       const existingKeys = entries.map((e) => e.key);
 
+      // Resolve collection once (from CLI flag or per-library config)
+      const collectionName = await getCollectionName(libraryId, opts.collection);
+      let collectionKey: string | undefined;
+      if (collectionName) {
+        collectionKey = await resolveCollectionKey(libraryId, collectionName);
+        console.log(chalk.dim(`  → Collection: ${collectionName}`));
+      }
+
       if (opts.file) {
-        await handleBatchFile(opts.file, libraryId, existingKeys, opts.yes);
+        await handleBatchFile(opts.file, libraryId, existingKeys, opts.yes, collectionKey);
         return;
       }
 
@@ -45,7 +54,7 @@ export function registerAddCommand(program: Command): void {
 
       // For title search, show multiple results
       if (idType === "title") {
-        await handleTitleSearch(identifier, libraryId, existingKeys, opts.key, opts.yes);
+        await handleTitleSearch(identifier, libraryId, existingKeys, opts.key, opts.yes, collectionKey);
         return;
       }
 
@@ -76,7 +85,7 @@ export function registerAddCommand(program: Command): void {
         };
 
         // Add to Zotero (if configured)
-        const zoteroKey = await addToZotero(libraryId, resolved.csl);
+        const zoteroKey = await addToZotero(libraryId, resolved.csl, collectionKey);
         if (zoteroKey) {
           entry.zoteroKey = zoteroKey;
           console.log(chalk.dim("  → Added to Zotero"));
@@ -98,6 +107,7 @@ async function handleTitleSearch(
   existingKeys: string[],
   overrideKey?: string,
   skipConfirm?: boolean,
+  collectionKey?: string,
 ): Promise<void> {
   console.log(`Searching for: "${query}"...`);
   const results = await searchByTitle(query, 5);
@@ -126,7 +136,7 @@ async function handleTitleSearch(
     addedAt: new Date().toISOString(),
   };
 
-  const zoteroKey = await addToZotero(libraryId, csl);
+  const zoteroKey = await addToZotero(libraryId, csl, collectionKey);
   if (zoteroKey) entry.zoteroKey = zoteroKey;
 
   await addToLibrary(libraryId, entry);
@@ -138,6 +148,7 @@ async function handleBatchFile(
   libraryId: string,
   existingKeys: string[],
   skipConfirm?: boolean,
+  collectionKey?: string,
 ): Promise<void> {
   const content = await readFile(filePath, "utf-8");
   const lines = content
@@ -165,7 +176,7 @@ async function handleBatchFile(
         addedAt: new Date().toISOString(),
       };
 
-      await addToZotero(libraryId, resolved.csl);
+      await addToZotero(libraryId, resolved.csl, collectionKey);
       await addToLibrary(libraryId, entry);
       added++;
     } catch (err: any) {

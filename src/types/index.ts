@@ -48,6 +48,11 @@ export interface CitationEntry {
   location: string;
 }
 
+/** Per-library settings */
+export interface LibraryConfig {
+  collection?: string; // Default Zotero collection name for this library
+}
+
 /** Global config (~/.cite/config.yaml) */
 export interface CiteConfig {
   zotero?: {
@@ -64,6 +69,7 @@ export interface CiteConfig {
     confirmBeforeWrite?: boolean;
     autoSyncBib?: boolean;
   };
+  libraries?: Record<string, LibraryConfig>;
 }
 
 /** Supported citation styles */
