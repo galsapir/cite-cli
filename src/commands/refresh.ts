@@ -15,6 +15,7 @@ import {
 } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
+import { resolveDocId } from "../lib/config.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry } from "../types/index.js";
@@ -23,10 +24,11 @@ export function registerRefreshCommand(program: Command): void {
   program
     .command("refresh")
     .description("Repair citations: reconstruct named ranges from hyperlinks and renumber in document order")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(

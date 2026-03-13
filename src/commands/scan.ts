@@ -13,7 +13,7 @@ import { formatInlineCitation } from "../lib/formatter.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { loadConfig } from "../lib/config.js";
+import { loadConfig, resolveDocId } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
@@ -30,11 +30,12 @@ export function registerScanCommand(program: Command): void {
   program
     .command("scan")
     .description("Scan document for pasted reference URLs and convert to citations")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .option("--collection <name>", "Zotero collection to add new references to")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const config = await loadConfig();
       const docState = await loadDocState(opts.doc);
       if (!docState) {

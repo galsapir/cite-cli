@@ -49,6 +49,16 @@ export async function updateConfig(
   return merged;
 }
 
+/** Resolve the effective doc ID from a CLI flag or the active default */
+export async function resolveDocId(cliDocId?: string): Promise<string> {
+  if (cliDocId) return cliDocId;
+  const config = await loadConfig();
+  const defaultDoc = config.defaults?.doc;
+  if (defaultDoc) return defaultDoc;
+  console.error("No --doc specified and no active document set. Use 'cite use --doc <ID>' or pass --doc.");
+  process.exit(1);
+}
+
 function deepMerge(target: Record<string, any>, source: Record<string, any>): Record<string, any> {
   const result = { ...target };
   for (const key of Object.keys(source)) {
