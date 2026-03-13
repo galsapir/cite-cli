@@ -232,6 +232,44 @@ export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   return csl;
 }
 
+/** Scrape citation meta tags from a URL's HTML */
+export async function scrapeMetaFromUrl(
+  url: string,
+): Promise<{ doi: string | null; title: string | null }> {
+  try {
+    const resp = await fetchWithTimeout(url);
+    if (!resp.ok) return { doi: null, title: null };
+
+    const html = await resp.text();
+
+    // Extract citation_doi or DC.identifier with DOI
+    let doi: string | null = null;
+    const doiMeta = html.match(
+      /<meta[^>]*name=["']citation_doi["'][^>]*content=["']([^"']+)["']/i,
+    );
+    if (doiMeta) {
+      doi = doiMeta[1];
+    } else {
+      const dcMeta = html.match(
+        /<meta[^>]*name=["']DC\.identifier["'][^>]*content=["'](?:doi:)?([^"']+)["']/i,
+      );
+      if (dcMeta) {
+        doi = dcMeta[1].replace(/^doi:/i, "");
+      }
+    }
+
+    // Extract citation_title
+    const titleMeta = html.match(
+      /<meta[^>]*name=["']citation_title["'][^>]*content=["']([^"']+)["']/i,
+    );
+    const title = titleMeta ? titleMeta[1] : null;
+
+    return { doi, title };
+  } catch {
+    return { doi: null, title: null };
+  }
+}
+
 /** Search Semantic Scholar by title text, return top results */
 export async function searchByTitle(
   query: string,

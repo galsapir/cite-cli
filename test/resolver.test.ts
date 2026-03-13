@@ -8,6 +8,7 @@ import {
   searchByTitle,
   canonicalIds,
   extractIdentifierFromUrl,
+  scrapeMetaFromUrl,
 } from "../src/lib/resolver.js";
 
 describe("detectIdentifierType", () => {
@@ -117,6 +118,63 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = originalFetch;
   vi.useRealTimers();
+});
+
+describe("scrapeMetaFromUrl", () => {
+  it("extracts citation_doi from HTML meta tags", async () => {
+    const html = `<html><head>
+      <meta name="citation_doi" content="10.1038/s41467-025-67922-y">
+      <meta name="citation_title" content="Some Paper Title">
+    </head><body></body></html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(html, { status: 200 }));
+
+    const result = await scrapeMetaFromUrl("https://example.com/paper");
+    expect(result).toEqual({ doi: "10.1038/s41467-025-67922-y", title: "Some Paper Title" });
+  });
+
+  it("extracts only citation_title when no DOI meta tag", async () => {
+    const html = `<html><head>
+      <meta name="citation_title" content="Paper Without DOI">
+    </head><body></body></html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(html, { status: 200 }));
+
+    const result = await scrapeMetaFromUrl("https://example.com/paper");
+    expect(result).toEqual({ doi: null, title: "Paper Without DOI" });
+  });
+
+  it("returns nulls when no citation meta tags found", async () => {
+    const html = `<html><head><title>Blog Post</title></head><body></body></html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(html, { status: 200 }));
+
+    const result = await scrapeMetaFromUrl("https://example.com/blog");
+    expect(result).toEqual({ doi: null, title: null });
+  });
+
+  it("handles fetch errors gracefully", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error("network error"));
+
+    const result = await scrapeMetaFromUrl("https://example.com/down");
+    expect(result).toEqual({ doi: null, title: null });
+  });
+
+  it("handles non-200 responses gracefully", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(null, { status: 403, statusText: "Forbidden" }),
+    );
+
+    const result = await scrapeMetaFromUrl("https://example.com/forbidden");
+    expect(result).toEqual({ doi: null, title: null });
+  });
+
+  it("handles DC.identifier DOI meta tag", async () => {
+    const html = `<html><head>
+      <meta name="DC.identifier" content="doi:10.1016/j.cell.2021.01.001">
+    </head><body></body></html>`;
+    vi.mocked(fetch).mockResolvedValueOnce(new Response(html, { status: 200 }));
+
+    const result = await scrapeMetaFromUrl("https://example.com/paper");
+    expect(result.doi).toBe("10.1016/j.cell.2021.01.001");
+  });
 });
 
 describe("resolvePmid", () => {
