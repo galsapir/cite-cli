@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, batchUpdate } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
-import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
+import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import type { docs_v1 } from "googleapis";
 
 export function registerBibCommand(program: Command): void {
@@ -172,6 +172,9 @@ export function registerBibCommand(program: Command): void {
       });
 
       docState.bibNamedRange = bibRangeName;
+
+      // Pre-write safety validation
+      validateBatchRequests(requests, doc.body);
 
       // Execute
       await batchUpdate(opts.doc, requests);

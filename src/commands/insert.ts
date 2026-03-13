@@ -9,7 +9,7 @@ import { loadLibrary, findInLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js";
 import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
-import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId } from "../lib/safety.js";
+import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson } from "../types/index.js";
@@ -182,6 +182,9 @@ export function registerInsertCommand(program: Command): void {
 
       // Sort in reverse index order (safety)
       const sortedRequests = sortRequestsReverseIndex(requests);
+
+      // Pre-write safety validation
+      validateBatchRequests(sortedRequests, doc.body);
 
       // Execute
       await batchUpdate(opts.doc, sortedRequests);
