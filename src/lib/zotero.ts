@@ -68,14 +68,14 @@ export function matchCollections(
   return collections.filter((c) => c.name.toLowerCase().includes(q));
 }
 
-/** Get the effective collection name from CLI flag or per-library config */
+/** Get the effective collection name from CLI flag, global default, or per-library config */
 export async function getCollectionName(
   libraryId: string,
   cliCollection?: string,
 ): Promise<string | undefined> {
   if (cliCollection) return cliCollection;
   const config = await loadConfig();
-  return config.libraries?.[libraryId]?.collection;
+  return config.defaults?.collection || config.libraries?.[libraryId]?.collection;
 }
 
 /** Resolve a collection name to a key, prompting if ambiguous */

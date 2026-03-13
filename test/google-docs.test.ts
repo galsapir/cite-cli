@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findTextLocation, extractText, findParagraph, findCitationOccurrences, findAllCitationOccurrences, findCitationHyperlinks } from "../src/lib/google-docs.js";
+import { findTextLocation, extractText, findParagraph, findCitationOccurrences, findAllCitationOccurrences, findCitationHyperlinks, findAcademicHyperlinks, isAcademicUrl } from "../src/lib/google-docs.js";
 import type { docs_v1 } from "googleapis";
 
 function makeDoc(paragraphs: string[]): docs_v1.Schema$StructuralElement[] {
@@ -209,5 +209,121 @@ describe("findAllCitationOccurrences", () => {
 
   it("returns empty for no citation ranges", () => {
     expect(findAllCitationOccurrences({})).toEqual([]);
+  });
+});
+
+describe("isAcademicUrl", () => {
+  it("recognizes doi.org URLs", () => {
+    expect(isAcademicUrl("https://doi.org/10.1038/s41586-020-2649-2")).toBe(true);
+    expect(isAcademicUrl("https://dx.doi.org/10.1038/s41586-020-2649-2")).toBe(true);
+    expect(isAcademicUrl("http://doi.org/10.1234/test")).toBe(true);
+  });
+
+  it("recognizes PubMed URLs", () => {
+    expect(isAcademicUrl("https://pubmed.ncbi.nlm.nih.gov/29083404")).toBe(true);
+    expect(isAcademicUrl("https://pubmed.ncbi.nlm.nih.gov/29083404/")).toBe(true);
+  });
+
+  it("recognizes arXiv URLs", () => {
+    expect(isAcademicUrl("https://arxiv.org/abs/2303.08774")).toBe(true);
+    expect(isAcademicUrl("http://arxiv.org/abs/2303.08774v2")).toBe(true);
+  });
+
+  it("recognizes URLs with embedded DOIs", () => {
+    expect(isAcademicUrl("https://www.nature.com/articles/10.1038/s41586-020-2649-2")).toBe(true);
+  });
+
+  it("rejects non-academic URLs", () => {
+    expect(isAcademicUrl("https://example.com")).toBe(false);
+    expect(isAcademicUrl("https://google.com/search?q=test")).toBe(false);
+  });
+
+  it("rejects our own citation hyperlinks", () => {
+    expect(isAcademicUrl("https://cite-cli.local/ref/harris2020")).toBe(false);
+  });
+});
+
+describe("findAcademicHyperlinks", () => {
+  function makeLinkedDoc(links: Array<{ text: string; url: string }>): docs_v1.Schema$StructuralElement[] {
+    let index = 1;
+    const elements: docs_v1.Schema$ParagraphElement[] = links.map((link) => {
+      const startIndex = index;
+      const endIndex = startIndex + link.text.length;
+      index = endIndex;
+      return {
+        startIndex,
+        endIndex,
+        textRun: {
+          content: link.text,
+          textStyle: { link: { url: link.url } },
+        },
+      };
+    });
+
+    return [{
+      startIndex: 1,
+      endIndex: index,
+      paragraph: { elements },
+    }];
+  }
+
+  it("finds DOI hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "ref", url: "https://doi.org/10.1038/s41586-020-2649-2" },
+    ]);
+    const links = findAcademicHyperlinks(doc);
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe("https://doi.org/10.1038/s41586-020-2649-2");
+    expect(links[0].text).toBe("ref");
+    expect(links[0].startIndex).toBe(1);
+    expect(links[0].endIndex).toBe(4);
+  });
+
+  it("finds PubMed and arXiv hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "ref1", url: "https://pubmed.ncbi.nlm.nih.gov/29083404" },
+      { text: "ref2", url: "https://arxiv.org/abs/2303.08774" },
+    ]);
+    const links = findAcademicHyperlinks(doc);
+    expect(links).toHaveLength(2);
+    expect(links[0].url).toContain("pubmed");
+    expect(links[1].url).toContain("arxiv");
+  });
+
+  it("skips cite-cli.local hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "[1]", url: "https://cite-cli.local/ref/harris2020" },
+      { text: "ref", url: "https://doi.org/10.1038/s41586-020-2649-2" },
+    ]);
+    const links = findAcademicHyperlinks(doc);
+    expect(links).toHaveLength(1);
+    expect(links[0].text).toBe("ref");
+  });
+
+  it("skips non-academic hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "click here", url: "https://example.com" },
+      { text: "ref", url: "https://doi.org/10.1038/s41586-020-2649-2" },
+    ]);
+    const links = findAcademicHyperlinks(doc);
+    expect(links).toHaveLength(1);
+  });
+
+  it("returns empty for plain text", () => {
+    const doc = makeDoc(["plain text with no links"]);
+    expect(findAcademicHyperlinks(doc)).toEqual([]);
+  });
+
+  it("handles mixed content with multiple academic links", () => {
+    const doc = makeLinkedDoc([
+      { text: "intro text", url: "https://example.com" },
+      { text: "ref", url: "https://doi.org/10.1038/s41586-020-2649-2" },
+      { text: "[1]", url: "https://cite-cli.local/ref/harris2020" },
+      { text: "another ref", url: "https://pubmed.ncbi.nlm.nih.gov/12345" },
+    ]);
+    const links = findAcademicHyperlinks(doc);
+    expect(links).toHaveLength(2);
+    expect(links[0].text).toBe("ref");
+    expect(links[1].text).toBe("another ref");
   });
 });

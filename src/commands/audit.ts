@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
+import { resolveDocId } from "../lib/config.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
@@ -12,9 +13,10 @@ export function registerAuditCommand(program: Command): void {
   program
     .command("audit")
     .description("Audit citations in a Google Doc")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(
