@@ -2,6 +2,59 @@
 
 Full command reference for `cite`. Run `cite <command> --help` for option details.
 
+> **Tip:** Set an active document with `cite use --doc <ID>` and all commands below will use it by default — no need to pass `--doc` every time.
+
+## use
+
+Set or show the active document and collection for your working session.
+
+```bash
+cite use --doc <DOC_ID> --collection my-paper   # set active context
+cite use                                         # show current context
+cite use --clear                                 # clear active context
+```
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--doc <id>` | Google Doc ID to work with |
+| `--collection <name>` | Default Zotero collection for new references |
+| `--clear` | Clear the active doc and collection |
+
+## scan
+
+Scan a Google Doc for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/arXiv URLs as hyperlinks while writing, then run `cite scan` to process them all.
+
+```bash
+cite scan                          # scan active doc
+cite scan --doc <DOC_ID>           # explicit doc
+cite scan --dry-run                # preview without writing
+cite scan --collection my-paper    # add new refs to a collection
+```
+
+**Detected URL patterns:**
+- `https://doi.org/10.xxx` — DOI
+- `https://pubmed.ncbi.nlm.nih.gov/12345` — PubMed
+- `https://arxiv.org/abs/2303.08774` — arXiv
+- Any URL containing a DOI pattern
+
+**What it does:**
+1. Finds hyperlinks pointing to academic URLs (skips already-processed citations)
+2. Resolves each URL to metadata via CrossRef/PubMed/arXiv APIs
+3. Adds new references to the library and Zotero collection
+4. Replaces each hyperlink with a formatted citation marker (e.g., `[1]`)
+5. Adds named ranges and citation hyperlinks for durability
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--collection <name>` | Zotero collection for new references |
+| `--dry-run` | Preview without writing |
+| `-y, --yes` | Skip confirmation |
+
 ## auth
 
 Set up authentication for external services.
@@ -69,7 +122,7 @@ cite init --doc <DOC_ID> --library group/12345
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--library <id>` | Library ID (e.g. `group/12345`), defaults to config |
 | `--style <style>` | Citation style, defaults to `vancouver` |
 
@@ -79,23 +132,23 @@ Insert an inline citation into a Google Doc.
 
 ```bash
 # Insert after specific text
-cite insert --doc <DOC_ID> --key harris2020 --after "some sentence"
+cite insert --key harris2020 --after "some sentence"
 
 # Insert at a specific paragraph
-cite insert --doc <DOC_ID> --key harris2020 --paragraph 5
+cite insert --key harris2020 --paragraph 5
 
 # Multiple citations at once
-cite insert --doc <DOC_ID> --keys "harris2020,rajpurkar2023" --after "some text"
+cite insert --keys "harris2020,rajpurkar2023" --after "some text"
 
 # Preview only
-cite insert --doc <DOC_ID> --key harris2020 --after "text" --dry-run
+cite insert --key harris2020 --after "text" --dry-run
 ```
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--key <key>` | Single citation key |
 | `--keys <keys>` | Comma-separated citation keys |
 | `--after <text>` | Insert after first occurrence of this text |
@@ -111,20 +164,20 @@ Generate or update the bibliography section in a Google Doc.
 
 ```bash
 # First time — specify where to place it
-cite bib --doc <DOC_ID> --after "References"
+cite bib --after "References"
 
 # Update existing bibliography
-cite bib --doc <DOC_ID>
+cite bib
 
 # Preview in a different style
-cite bib --doc <DOC_ID> --style apa --dry-run
+cite bib --style apa --dry-run
 ```
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--style <style>` | Override citation style |
 | `--after <text>` | Insert bibliography after this text (first-time only) |
 | `--dry-run` | Preview without writing |
@@ -135,8 +188,8 @@ cite bib --doc <DOC_ID> --style apa --dry-run
 Audit citations in a Google Doc for consistency.
 
 ```bash
-cite audit --doc <DOC_ID>
-cite audit --doc <DOC_ID> --offline    # Audit local state only
+cite audit
+cite audit --offline    # Audit local state only
 ```
 
 Reports:
@@ -149,7 +202,7 @@ Reports:
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--offline` | Audit local state only (skip doc fetch) |
 
 ## refresh
@@ -157,8 +210,8 @@ Reports:
 Repair citations after document reorganization (copy/paste, paragraph moves).
 
 ```bash
-cite refresh --doc <DOC_ID> --dry-run   # preview changes
-cite refresh --doc <DOC_ID>             # apply
+cite refresh --dry-run   # preview changes
+cite refresh             # apply
 ```
 
 This command:
@@ -172,7 +225,7 @@ This command:
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
 
@@ -244,15 +297,15 @@ Fetches entries from Zotero, merges by DOI and Zotero key, and preserves local-o
 Remove a citation from a Google Doc and renumber remaining citations.
 
 ```bash
-cite remove --doc <DOC_ID> --key rajpurkar2023
-cite remove --doc <DOC_ID> --key rajpurkar2023 --dry-run
+cite remove --key rajpurkar2023
+cite remove --key rajpurkar2023 --dry-run
 ```
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | **(required)** Google Doc ID |
+| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
 | `--key <key>` | **(required)** Citation key to remove |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |

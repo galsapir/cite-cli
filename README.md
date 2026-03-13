@@ -4,37 +4,33 @@ A terminal-based citation manager for Google Docs.
 
 `cite` resolves papers by DOI, PMID, arXiv ID, or title search, stores them in a local library synced with [Zotero](https://www.zotero.org/), and inserts inline citations and bibliographies directly into Google Docs — all from the command line.
 
-## Features
+## Workflow
 
-- **Add references** by DOI, PMID, arXiv ID, URL, or free-text title search
-- **Insert inline citations** into Google Docs with automatic numbering
-- **Generate bibliographies** in Vancouver, APA, Nature, IEEE, or Chicago style
-- **Import** from BibTeX, RIS, or SciWheel
-- **Sync** your local library with Zotero cloud
-- **Audit** citations for consistency (missing keys, numbering gaps, orphaned entries)
-- **Remove** citations with automatic renumbering
-
-## Quick Start
+The typical workflow: write in Google Docs, paste reference URLs inline, then run `cite scan` to formalize everything.
 
 ```bash
-# Install dependencies and build
-npm install && npm run build
+# 1. Set up your working session
+cite auth zotero && cite auth google         # one-time setup
+cite init --doc <DOC_ID> --style vancouver   # initialize a doc
+cite use --doc <DOC_ID> --collection my-paper  # set active doc + collection
 
-# Set up Zotero and Google Docs authentication
-cite auth zotero
-cite auth google
+# 2. Write in Google Docs
+#    Paste DOI/PubMed/arXiv URLs as hyperlinks while you write
 
-# Add a paper by DOI
-cite add "10.1038/s41586-020-2649-2"
+# 3. Process references with one command
+cite scan              # finds pasted URLs, resolves them, inserts [1] [2] etc.
+cite bib --after "References"   # generate bibliography
+```
 
-# Initialize a Google Doc
-cite init --doc <GOOGLE_DOC_ID>
+### Manual citation flow
 
-# Insert a citation
-cite insert --doc <DOC_ID> --key harris2020 --after "some text in your doc"
+For more control, add and insert references individually:
 
-# Generate bibliography
-cite bib --doc <DOC_ID> --after "References"
+```bash
+cite add "10.1038/s41586-020-2649-2"         # add by DOI
+cite add "Attention is all you need"          # add by title search
+cite insert --key harris2020 --after "some text"   # insert citation
+cite bib                                      # update bibliography
 ```
 
 ## Prerequisites
@@ -45,41 +41,50 @@ cite bib --doc <DOC_ID> --after "References"
 
 See [docs/getting-started.md](docs/getting-started.md) for detailed setup instructions.
 
+## Install
+
+```bash
+npm install && npm run build
+```
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `cite auth google` | Set up Google Docs OAuth2 |
-| `cite auth zotero` | Set up Zotero API key |
+| `cite use` | Set or show the active document and collection |
+| `cite scan` | Scan doc for pasted reference URLs and convert to citations |
 | `cite add <identifier>` | Add a reference by DOI, PMID, arXiv, URL, or title |
 | `cite search [query]` | Search the local library |
-| `cite init --doc <id>` | Initialize a Google Doc for citations |
-| `cite insert --doc <id>` | Insert an inline citation |
-| `cite bib --doc <id>` | Generate or update bibliography |
-| `cite audit --doc <id>` | Audit citations for consistency |
+| `cite init` | Initialize a Google Doc for citations |
+| `cite insert` | Insert an inline citation |
+| `cite bib` | Generate or update bibliography |
+| `cite audit` | Audit citations for consistency |
+| `cite refresh` | Repair citations after document reorganization |
+| `cite remove` | Remove a citation and renumber |
 | `cite import bibtex <file>` | Import from BibTeX |
 | `cite import ris <file>` | Import from RIS |
-| `cite import sciwheel` | Import from SciWheel |
 | `cite sync` | Sync local library with Zotero |
-| `cite remove --doc <id>` | Remove a citation and renumber |
 | `cite config show` | View configuration |
-| `cite config style <style>` | Set citation style |
+| `cite auth google/zotero` | Set up authentication |
+
+All commands that operate on a document accept `--doc <id>`, but if you've set an active doc with `cite use`, it's optional.
 
 See [docs/usage.md](docs/usage.md) for full command reference.
+
+## Features
+
+- **Scan & cite** — paste DOI/PubMed/arXiv URLs in your doc, run `cite scan` to convert them all to formatted citations
+- **Named ranges + hyperlinks** — citations survive document reorganization and copy/paste
+- **Zotero collections** — organize references into collections per paper
+- **Multiple citation styles** — Vancouver (default), APA, Nature, IEEE, Chicago
+- **Import** — BibTeX, RIS, or SciWheel
+- **Audit & refresh** — detect inconsistencies and repair citations after edits
 
 ## Documentation
 
 - [Getting Started](docs/getting-started.md) — First-time setup from scratch
 - [Usage Guide](docs/usage.md) — Full command reference with examples
 - [Importing References](docs/importing.md) — BibTeX, RIS, and SciWheel import guide
-
-## Citation Styles
-
-- **Vancouver** (default) — numbered, used in biomedical journals
-- **APA** — author-date, used in social sciences
-- **Nature** — numbered, used by Nature journals
-- **IEEE** — numbered, used in engineering
-- **Chicago (author-date)** — used in humanities
 
 ## How It Works
 
@@ -95,7 +100,7 @@ cite stores data in `~/.cite/`:
 └── logs/                    # Operation logs
 ```
 
-Each Google Doc is bound to a library and citation style via `cite init`. Citations are tracked with indices and positions, and the bibliography is managed through named ranges for reliable updates.
+Each Google Doc is bound to a library and citation style via `cite init`. Inline citations are tracked using Google Docs named ranges and hyperlinks for durability. The bibliography is managed through a named range for reliable in-place updates.
 
 ## License
 
