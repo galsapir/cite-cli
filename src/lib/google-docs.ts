@@ -271,7 +271,9 @@ const ACADEMIC_URL_PATTERNS: RegExp[] = [
   /doi\.org\//i,
   /dx\.doi\.org\//i,
   /pubmed\.ncbi\.nlm\.nih\.gov\//i,
+  /pmc\.ncbi\.nlm\.nih\.gov\/articles\//i,
   /arxiv\.org\/abs\//i,
+  /nature\.com\/articles\//i,
   /10\.\d{4,}\//,  // embedded DOI anywhere in URL
 ];
 

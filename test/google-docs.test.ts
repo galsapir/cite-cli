@@ -252,6 +252,16 @@ describe("isAcademicUrl", () => {
     expect(isAcademicUrl("https://www.nature.com/articles/10.1038/s41586-020-2649-2")).toBe(true);
   });
 
+  it("recognizes PMC URLs", () => {
+    expect(isAcademicUrl("https://pmc.ncbi.nlm.nih.gov/articles/PMC12478425/")).toBe(true);
+    expect(isAcademicUrl("https://pmc.ncbi.nlm.nih.gov/articles/PMC12478425")).toBe(true);
+  });
+
+  it("recognizes Nature article URLs", () => {
+    expect(isAcademicUrl("https://www.nature.com/articles/s41467-025-67922-y")).toBe(true);
+    expect(isAcademicUrl("https://nature.com/articles/s41586-020-2649-2")).toBe(true);
+  });
+
   it("rejects non-academic URLs", () => {
     expect(isAcademicUrl("https://example.com")).toBe(false);
     expect(isAcademicUrl("https://google.com/search?q=test")).toBe(false);
