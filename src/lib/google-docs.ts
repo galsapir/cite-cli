@@ -3,6 +3,7 @@
 
 import { google, type docs_v1 } from "googleapis";
 import { getGoogleAuth } from "./google-auth.js";
+import { CITE_RANGE_PREFIX } from "../types/index.js";
 
 export interface DocContent {
   title: string;
@@ -130,6 +131,64 @@ export function findParagraph(
     }
   }
   return null;
+}
+
+/** A citation occurrence found via named ranges in the document */
+export interface CitationOccurrence {
+  key: string;
+  namedRangeId: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+/** Find all citation occurrences for a given key using named ranges */
+export function findCitationOccurrences(
+  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+  key: string,
+): CitationOccurrence[] {
+  const rangeName = `${CITE_RANGE_PREFIX}${key}`;
+  const ranges = namedRanges[rangeName];
+  if (!ranges) return [];
+
+  const occurrences: CitationOccurrence[] = [];
+  for (const nr of ranges) {
+    for (const range of nr.ranges || []) {
+      if (range.startIndex != null && range.endIndex != null && nr.namedRangeId) {
+        occurrences.push({
+          key,
+          namedRangeId: nr.namedRangeId,
+          startIndex: range.startIndex,
+          endIndex: range.endIndex,
+        });
+      }
+    }
+  }
+
+  return occurrences;
+}
+
+/** Find all citation occurrences across all keys */
+export function findAllCitationOccurrences(
+  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+): CitationOccurrence[] {
+  const occurrences: CitationOccurrence[] = [];
+  for (const [name, ranges] of Object.entries(namedRanges)) {
+    if (!name.startsWith(CITE_RANGE_PREFIX)) continue;
+    const key = name.slice(CITE_RANGE_PREFIX.length);
+    for (const nr of ranges) {
+      for (const range of nr.ranges || []) {
+        if (range.startIndex != null && range.endIndex != null && nr.namedRangeId) {
+          occurrences.push({
+            key,
+            namedRangeId: nr.namedRangeId,
+            startIndex: range.startIndex,
+            endIndex: range.endIndex,
+          });
+        }
+      }
+    }
+  }
+  return occurrences;
 }
 
 /** Execute a batch update on a Google Doc, returns per-request replies */

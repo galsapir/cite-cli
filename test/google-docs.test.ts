@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findTextLocation, extractText, findParagraph } from "../src/lib/google-docs.js";
+import { findTextLocation, extractText, findParagraph, findCitationOccurrences, findAllCitationOccurrences } from "../src/lib/google-docs.js";
 import type { docs_v1 } from "googleapis";
 
 function makeDoc(paragraphs: string[]): docs_v1.Schema$StructuralElement[] {
@@ -70,5 +70,81 @@ describe("findParagraph", () => {
   it("returns null for out of range", () => {
     const doc = makeDoc(["Only one"]);
     expect(findParagraph(doc, 5)).toBeNull();
+  });
+});
+
+describe("findCitationOccurrences", () => {
+  const namedRanges: Record<string, docs_v1.Schema$NamedRange[]> = {
+    "cite:harris2020": [
+      {
+        namedRangeId: "nr1",
+        name: "cite:harris2020",
+        ranges: [{ startIndex: 10, endIndex: 13 }],
+      },
+      {
+        namedRangeId: "nr2",
+        name: "cite:harris2020",
+        ranges: [{ startIndex: 50, endIndex: 53 }],
+      },
+    ],
+    "cite:smith2021": [
+      {
+        namedRangeId: "nr3",
+        name: "cite:smith2021",
+        ranges: [{ startIndex: 30, endIndex: 33 }],
+      },
+    ],
+    "cite-bibliography": [
+      {
+        namedRangeId: "bib1",
+        name: "cite-bibliography",
+        ranges: [{ startIndex: 100, endIndex: 200 }],
+      },
+    ],
+  };
+
+  it("finds all occurrences for a key", () => {
+    const occs = findCitationOccurrences(namedRanges, "harris2020");
+    expect(occs).toHaveLength(2);
+    expect(occs[0]).toEqual({
+      key: "harris2020",
+      namedRangeId: "nr1",
+      startIndex: 10,
+      endIndex: 13,
+    });
+    expect(occs[1]).toEqual({
+      key: "harris2020",
+      namedRangeId: "nr2",
+      startIndex: 50,
+      endIndex: 53,
+    });
+  });
+
+  it("returns empty array for unknown key", () => {
+    expect(findCitationOccurrences(namedRanges, "unknown")).toEqual([]);
+  });
+
+  it("finds single occurrence", () => {
+    const occs = findCitationOccurrences(namedRanges, "smith2021");
+    expect(occs).toHaveLength(1);
+    expect(occs[0].namedRangeId).toBe("nr3");
+  });
+});
+
+describe("findAllCitationOccurrences", () => {
+  it("finds all cite: ranges and ignores non-citation ranges", () => {
+    const namedRanges: Record<string, docs_v1.Schema$NamedRange[]> = {
+      "cite:a": [{ namedRangeId: "r1", name: "cite:a", ranges: [{ startIndex: 5, endIndex: 8 }] }],
+      "cite:b": [{ namedRangeId: "r2", name: "cite:b", ranges: [{ startIndex: 20, endIndex: 23 }] }],
+      "cite-bibliography": [{ namedRangeId: "bib", name: "cite-bibliography", ranges: [{ startIndex: 100, endIndex: 200 }] }],
+    };
+
+    const all = findAllCitationOccurrences(namedRanges);
+    expect(all).toHaveLength(2);
+    expect(all.map((o) => o.key).sort()).toEqual(["a", "b"]);
+  });
+
+  it("returns empty for no citation ranges", () => {
+    expect(findAllCitationOccurrences({})).toEqual([]);
   });
 });
