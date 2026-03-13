@@ -199,39 +199,56 @@ export interface HyperlinkCitation {
   text: string; // the linked text content
 }
 
-/** Scan document body for citation hyperlinks matching our URL pattern */
-export function findCitationHyperlinks(
+/** Shared hyperlink info extracted during document traversal */
+interface HyperlinkElement {
+  url: string;
+  startIndex: number;
+  endIndex: number;
+  text: string;
+}
+
+/** Walk document structure and collect all hyperlink elements */
+function collectHyperlinks(
   elements: docs_v1.Schema$StructuralElement[],
-): HyperlinkCitation[] {
-  const results: HyperlinkCitation[] = [];
+): HyperlinkElement[] {
+  const results: HyperlinkElement[] = [];
 
   for (const el of elements) {
     if (el.paragraph) {
       for (const pe of el.paragraph.elements || []) {
-        const link = pe.textRun?.textStyle?.link?.url;
-        if (link && link.startsWith(CITE_LINK_PREFIX)) {
-          const keysStr = link.slice(CITE_LINK_PREFIX.length);
-          const keys = keysStr.split(",").filter(Boolean);
-          if (keys.length > 0 && pe.startIndex != null && pe.endIndex != null) {
-            results.push({
-              keys,
-              startIndex: pe.startIndex,
-              endIndex: pe.endIndex,
-              text: pe.textRun?.content || "",
-            });
-          }
+        const url = pe.textRun?.textStyle?.link?.url;
+        if (url && pe.startIndex != null && pe.endIndex != null) {
+          results.push({
+            url,
+            startIndex: pe.startIndex,
+            endIndex: pe.endIndex,
+            text: pe.textRun?.content || "",
+          });
         }
       }
     } else if (el.table) {
       for (const row of el.table.tableRows || []) {
         for (const cell of row.tableCells || []) {
-          results.push(...findCitationHyperlinks(cell.content || []));
+          results.push(...collectHyperlinks(cell.content || []));
         }
       }
     }
   }
 
   return results;
+}
+
+/** Scan document body for citation hyperlinks matching our URL pattern */
+export function findCitationHyperlinks(
+  elements: docs_v1.Schema$StructuralElement[],
+): HyperlinkCitation[] {
+  return collectHyperlinks(elements)
+    .filter((hl) => hl.url.startsWith(CITE_LINK_PREFIX))
+    .map((hl) => {
+      const keys = hl.url.slice(CITE_LINK_PREFIX.length).split(",").filter(Boolean);
+      return { keys, startIndex: hl.startIndex, endIndex: hl.endIndex, text: hl.text };
+    })
+    .filter((hl) => hl.keys.length > 0);
 }
 
 /** URL patterns that indicate an academic reference */
@@ -261,31 +278,7 @@ export interface AcademicHyperlink {
 export function findAcademicHyperlinks(
   elements: docs_v1.Schema$StructuralElement[],
 ): AcademicHyperlink[] {
-  const results: AcademicHyperlink[] = [];
-
-  for (const el of elements) {
-    if (el.paragraph) {
-      for (const pe of el.paragraph.elements || []) {
-        const link = pe.textRun?.textStyle?.link?.url;
-        if (link && isAcademicUrl(link) && pe.startIndex != null && pe.endIndex != null) {
-          results.push({
-            url: link,
-            startIndex: pe.startIndex,
-            endIndex: pe.endIndex,
-            text: pe.textRun?.content || "",
-          });
-        }
-      }
-    } else if (el.table) {
-      for (const row of el.table.tableRows || []) {
-        for (const cell of row.tableCells || []) {
-          results.push(...findAcademicHyperlinks(cell.content || []));
-        }
-      }
-    }
-  }
-
-  return results;
+  return collectHyperlinks(elements).filter((hl) => isAcademicUrl(hl.url));
 }
 
 /** Execute a batch update on a Google Doc, returns per-request replies */

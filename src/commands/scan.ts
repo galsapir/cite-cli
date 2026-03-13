@@ -5,7 +5,7 @@ import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
-import { loadLibrary, addToLibrary, generateCiteKey } from "../lib/library.js";
+import { loadLibrary, addToLibrary } from "../lib/library.js";
 import { fetchDoc, findAcademicHyperlinks, batchUpdate } from "../lib/google-docs.js";
 import type { AcademicHyperlink } from "../lib/google-docs.js";
 import { resolve } from "../lib/resolver.js";
@@ -13,7 +13,7 @@ import { formatInlineCitation } from "../lib/formatter.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { loadConfig, resolveDocId } from "../lib/config.js";
+import { resolveDocId } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
@@ -36,7 +36,6 @@ export function registerScanCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       opts.doc = await resolveDocId(opts.doc);
-      const config = await loadConfig();
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(
@@ -77,28 +76,32 @@ export function registerScanCommand(program: Command): void {
       const resolved: ResolvedHyperlink[] = [];
       const newEntries: LibraryEntry[] = [];
 
+      // Build DOI→key index for O(1) dedup lookups
+      const doiToKey = new Map<string, string>();
+      for (const e of library) {
+        if (e.csl.DOI) doiToKey.set(e.csl.DOI, e.key);
+      }
+
+      // Track the next available citation index (avoids recalculating max each iteration)
+      let nextIndex = docState.citations.length > 0
+        ? Math.max(...docState.citations.map((c) => c.index)) + 1
+        : 1;
+
+      // Map from key → already-assigned index in this batch
+      const batchKeyToIndex = new Map<string, number>();
+
       for (const hl of hyperlinks) {
         try {
           const result = await resolve(hl.url, [...existingKeys, ...newEntries.map((e) => e.key)]);
 
-          // Check if this reference is already in the library (by DOI match)
-          const existingByDoi = result.csl.DOI
-            ? library.find((e) => e.csl.DOI === result.csl.DOI)
-            : undefined;
-
-          // Also check new entries we're about to add (for duplicate URLs in same doc)
-          const existingNew = result.csl.DOI
-            ? newEntries.find((e) => e.csl.DOI === result.csl.DOI)
-            : undefined;
+          // Check if this reference already exists (by DOI)
+          const existingKey = result.csl.DOI ? doiToKey.get(result.csl.DOI) : undefined;
 
           let key: string;
           let isNew: boolean;
 
-          if (existingByDoi) {
-            key = existingByDoi.key;
-            isNew = false;
-          } else if (existingNew) {
-            key = existingNew.key;
+          if (existingKey) {
+            key = existingKey;
             isNew = false;
           } else {
             key = result.suggestedKey;
@@ -108,6 +111,7 @@ export function registerScanCommand(program: Command): void {
               csl: result.csl,
               addedAt: new Date().toISOString(),
             });
+            if (result.csl.DOI) doiToKey.set(result.csl.DOI, key);
           }
 
           // Determine citation index
@@ -115,20 +119,11 @@ export function registerScanCommand(program: Command): void {
           let index: number;
           if (existingCitation) {
             index = existingCitation.index;
+          } else if (batchKeyToIndex.has(key)) {
+            index = batchKeyToIndex.get(key)!;
           } else {
-            // Check if we already assigned an index in this scan batch
-            const alreadyResolved = resolved.find((r) => r.key === key);
-            if (alreadyResolved) {
-              index = alreadyResolved.index;
-            } else {
-              const maxExisting = docState.citations.length > 0
-                ? Math.max(...docState.citations.map((c) => c.index))
-                : 0;
-              const maxResolved = resolved.length > 0
-                ? Math.max(...resolved.filter((r) => !docState.citations.find((c) => c.key === r.key)).map((r) => r.index))
-                : 0;
-              index = Math.max(maxExisting, maxResolved) + 1;
-            }
+            index = nextIndex++;
+            batchKeyToIndex.set(key, index);
           }
 
           resolved.push({ hyperlink: hl, key, csl: result.csl, isNew, index });
@@ -193,7 +188,7 @@ export function registerScanCommand(program: Command): void {
       );
 
       const style = docState.style;
-      const reloadedLibrary = await loadLibrary(docState.libraryId);
+      const allLibraryEntries = [...library, ...newEntries];
       const allRequests: docs_v1.Schema$Request[] = [];
       const newCitations: CitationEntry[] = [];
 
@@ -201,7 +196,7 @@ export function registerScanCommand(program: Command): void {
       const namedRangeRequestInfo: Array<{ requestIndex: number; key: string }> = [];
 
       for (const r of sortedResolved) {
-        const cslEntries = [reloadedLibrary.find((e) => e.key === r.key)?.csl].filter(Boolean) as CslJson[];
+        const cslEntries = [allLibraryEntries.find((e) => e.key === r.key)?.csl].filter(Boolean) as CslJson[];
         const marker = formatInlineCitation([r.index], style, cslEntries);
 
         // Delete the old hyperlinked text
