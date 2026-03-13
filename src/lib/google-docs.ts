@@ -234,6 +234,60 @@ export function findCitationHyperlinks(
   return results;
 }
 
+/** URL patterns that indicate an academic reference */
+const ACADEMIC_URL_PATTERNS: RegExp[] = [
+  /doi\.org\//i,
+  /dx\.doi\.org\//i,
+  /pubmed\.ncbi\.nlm\.nih\.gov\//i,
+  /arxiv\.org\/abs\//i,
+  /10\.\d{4,}\//,  // embedded DOI anywhere in URL
+];
+
+/** Check whether a URL points to an academic reference we can resolve */
+export function isAcademicUrl(url: string): boolean {
+  if (url.startsWith(CITE_LINK_PREFIX)) return false;
+  return ACADEMIC_URL_PATTERNS.some((p) => p.test(url));
+}
+
+/** An academic hyperlink found in the document (not yet processed as a citation) */
+export interface AcademicHyperlink {
+  url: string;
+  startIndex: number;
+  endIndex: number;
+  text: string;
+}
+
+/** Scan document body for hyperlinks pointing to academic URLs (DOI, PubMed, arXiv) */
+export function findAcademicHyperlinks(
+  elements: docs_v1.Schema$StructuralElement[],
+): AcademicHyperlink[] {
+  const results: AcademicHyperlink[] = [];
+
+  for (const el of elements) {
+    if (el.paragraph) {
+      for (const pe of el.paragraph.elements || []) {
+        const link = pe.textRun?.textStyle?.link?.url;
+        if (link && isAcademicUrl(link) && pe.startIndex != null && pe.endIndex != null) {
+          results.push({
+            url: link,
+            startIndex: pe.startIndex,
+            endIndex: pe.endIndex,
+            text: pe.textRun?.content || "",
+          });
+        }
+      }
+    } else if (el.table) {
+      for (const row of el.table.tableRows || []) {
+        for (const cell of row.tableCells || []) {
+          results.push(...findAcademicHyperlinks(cell.content || []));
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
 /** Execute a batch update on a Google Doc, returns per-request replies */
 export async function batchUpdate(
   docId: string,
