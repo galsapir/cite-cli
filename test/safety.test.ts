@@ -81,8 +81,8 @@ describe("validateRequestBounds", () => {
       { insertText: { location: { index: 10 }, text: "hello" } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(true);
-    expect(result.errors).toHaveLength(0);
+    expect(result.length === 0).toBe(true);
+    expect(result).toHaveLength(0);
   });
 
   it("rejects insertText at index 0", () => {
@@ -90,8 +90,8 @@ describe("validateRequestBounds", () => {
       { insertText: { location: { index: 0 }, text: "x" } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/below minimum/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/below minimum/);
   });
 
   it("rejects insertText beyond document end", () => {
@@ -100,8 +100,8 @@ describe("validateRequestBounds", () => {
     ];
     // bodyEndIndex=100, max valid insert is 99
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/exceeds document end/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/exceeds document end/);
   });
 
   it("accepts insertText at the last valid position", () => {
@@ -109,7 +109,7 @@ describe("validateRequestBounds", () => {
       { insertText: { location: { index: 99 }, text: "x" } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 
   it("rejects deleteContentRange with startIndex < 1", () => {
@@ -117,8 +117,8 @@ describe("validateRequestBounds", () => {
       { deleteContentRange: { range: { startIndex: 0, endIndex: 5 } } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/below minimum/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/below minimum/);
   });
 
   it("rejects deleteContentRange exceeding document end", () => {
@@ -126,8 +126,8 @@ describe("validateRequestBounds", () => {
       { deleteContentRange: { range: { startIndex: 50, endIndex: 200 } } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/exceeds document end/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/exceeds document end/);
   });
 
   it("rejects deleteContentRange where startIndex >= endIndex", () => {
@@ -135,8 +135,8 @@ describe("validateRequestBounds", () => {
       { deleteContentRange: { range: { startIndex: 50, endIndex: 50 } } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/invalid range/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/invalid range/);
   });
 
   it("reports insertText missing location.index", () => {
@@ -144,8 +144,8 @@ describe("validateRequestBounds", () => {
       { insertText: { text: "x" } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/missing location\.index/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/missing location\.index/);
   });
 
   it("skips structural requests (deleteNamedRange, createNamedRange, replaceAllText)", () => {
@@ -155,7 +155,7 @@ describe("validateRequestBounds", () => {
       { replaceAllText: { containsText: { text: "old" }, replaceText: "new" } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 
   it("collects multiple errors", () => {
@@ -164,8 +164,8 @@ describe("validateRequestBounds", () => {
       { deleteContentRange: { range: { startIndex: 50, endIndex: 200 } } },
     ];
     const result = validateRequestBounds(requests, 100);
-    expect(result.valid).toBe(false);
-    expect(result.errors).toHaveLength(2);
+    expect(result.length === 0).toBe(false);
+    expect(result).toHaveLength(2);
   });
 });
 
@@ -176,7 +176,7 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 30, endIndex: 40 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 
   it("passes when deletes are adjacent (not overlapping)", () => {
@@ -185,7 +185,7 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 20, endIndex: 30 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 
   it("rejects overlapping deletes", () => {
@@ -194,8 +194,8 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 20, endIndex: 30 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(false);
-    expect(result.errors[0]).toMatch(/Overlapping/);
+    expect(result.length === 0).toBe(false);
+    expect(result[0]).toMatch(/Overlapping/);
   });
 
   it("rejects when one delete is fully contained in another", () => {
@@ -204,7 +204,7 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 20, endIndex: 30 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(false);
+    expect(result.length === 0).toBe(false);
   });
 
   it("ignores non-delete requests", () => {
@@ -213,7 +213,7 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 10, endIndex: 20 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 
   it("passes with a single delete", () => {
@@ -221,7 +221,7 @@ describe("validateNoOverlappingDeletes", () => {
       { deleteContentRange: { range: { startIndex: 10, endIndex: 20 } } },
     ];
     const result = validateNoOverlappingDeletes(requests);
-    expect(result.valid).toBe(true);
+    expect(result.length === 0).toBe(true);
   });
 });
 

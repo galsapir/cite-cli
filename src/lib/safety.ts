@@ -79,24 +79,21 @@ export function checkRevisionId(
   return expected === actual;
 }
 
-/** Result of validating batch update requests */
-export interface ValidationResult {
-  valid: boolean;
-  errors: string[];
-}
-
 /**
  * Validate that all batch update requests target indices within the
  * document body bounds.  Google Docs body indices start at 1 and the
  * last valid index is `bodyEndIndex - 1` (the final newline).
+ *
+ * Returns an array of error strings (empty when all requests are valid).
  */
 export function validateRequestBounds(
   requests: docs_v1.Schema$Request[],
   bodyEndIndex: number,
-): ValidationResult {
+): string[] {
   const errors: string[] = [];
 
-  for (const req of requests) {
+  for (let i = 0; i < requests.length; i++) {
+    const req = requests[i];
     // Skip structural requests that don't reference a position
     if (req.deleteNamedRange || req.createNamedRange || req.replaceAllText) {
       continue;
@@ -105,54 +102,51 @@ export function validateRequestBounds(
     if (req.insertText) {
       const idx = req.insertText.location?.index;
       if (idx == null) {
-        errors.push("insertText request missing location.index");
-        continue;
-      }
-      if (idx < 1) {
-        errors.push(`insertText index ${idx} is below minimum (1)`);
-      }
-      if (idx > bodyEndIndex - 1) {
+        errors.push(`request[${i}]: insertText missing location.index`);
+      } else if (idx < 1) {
+        errors.push(`request[${i}]: insertText index ${idx} is below minimum (1)`);
+      } else if (idx > bodyEndIndex - 1) {
         errors.push(
-          `insertText index ${idx} exceeds document end (${bodyEndIndex - 1})`,
+          `request[${i}]: insertText index ${idx} exceeds document end (${bodyEndIndex - 1})`,
         );
       }
-    }
-
-    if (req.deleteContentRange) {
+    } else if (req.deleteContentRange) {
       const range = req.deleteContentRange.range;
       if (!range || range.startIndex == null || range.endIndex == null) {
-        errors.push("deleteContentRange request missing range indices");
-        continue;
-      }
-      if (range.startIndex < 1) {
-        errors.push(
-          `deleteContentRange startIndex ${range.startIndex} is below minimum (1)`,
-        );
-      }
-      if (range.endIndex > bodyEndIndex) {
-        errors.push(
-          `deleteContentRange endIndex ${range.endIndex} exceeds document end (${bodyEndIndex})`,
-        );
-      }
-      if (range.startIndex >= range.endIndex) {
-        errors.push(
-          `deleteContentRange has invalid range: startIndex (${range.startIndex}) >= endIndex (${range.endIndex})`,
-        );
+        errors.push(`request[${i}]: deleteContentRange missing range indices`);
+      } else {
+        if (range.startIndex < 1) {
+          errors.push(
+            `request[${i}]: deleteContentRange startIndex ${range.startIndex} is below minimum (1)`,
+          );
+        }
+        if (range.endIndex > bodyEndIndex) {
+          errors.push(
+            `request[${i}]: deleteContentRange endIndex ${range.endIndex} exceeds document end (${bodyEndIndex})`,
+          );
+        }
+        if (range.startIndex >= range.endIndex) {
+          errors.push(
+            `request[${i}]: deleteContentRange has invalid range: startIndex (${range.startIndex}) >= endIndex (${range.endIndex})`,
+          );
+        }
       }
     }
   }
 
-  return { valid: errors.length === 0, errors };
+  return errors;
 }
 
 /**
  * Validate that no two delete ranges overlap.  Overlapping deletes in a
  * single batchUpdate cause unpredictable behavior because one deletion
  * shifts indices that the other depends on.
+ *
+ * Returns an array of error strings (empty when no overlaps exist).
  */
 export function validateNoOverlappingDeletes(
   requests: docs_v1.Schema$Request[],
-): ValidationResult {
+): string[] {
   const errors: string[] = [];
 
   const deleteRanges: Array<{ start: number; end: number }> = [];
@@ -176,7 +170,7 @@ export function validateNoOverlappingDeletes(
     }
   }
 
-  return { valid: errors.length === 0, errors };
+  return errors;
 }
 
 /**
@@ -201,10 +195,10 @@ export function validateBatchRequests(
 ): void {
   const endIndex = getBodyEndIndex(body);
 
-  const boundsResult = validateRequestBounds(requests, endIndex);
-  const overlapResult = validateNoOverlappingDeletes(requests);
-
-  const allErrors = [...boundsResult.errors, ...overlapResult.errors];
+  const allErrors = [
+    ...validateRequestBounds(requests, endIndex),
+    ...validateNoOverlappingDeletes(requests),
+  ];
   if (allErrors.length > 0) {
     throw new Error(
       `Safety check failed — refusing to write:\n  • ${allErrors.join("\n  • ")}`,

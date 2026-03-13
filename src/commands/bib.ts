@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, batchUpdate } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
-import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
+import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests, getBodyEndIndex } from "../lib/safety.js";
 import type { docs_v1 } from "googleapis";
 
 export function registerBibCommand(program: Command): void {
@@ -124,10 +124,7 @@ export function registerBibCommand(program: Command): void {
           });
         } else {
           // Range metadata is broken — fall back to appending at end
-          const lastElement = doc.body[doc.body.length - 1];
-          insertIndex = lastElement?.endIndex
-            ? lastElement.endIndex - 1
-            : 1;
+          insertIndex = getBodyEndIndex(doc.body) - 1;
         }
       } else {
         // First time: determine insertion point
@@ -141,10 +138,7 @@ export function registerBibCommand(program: Command): void {
           }
           insertIndex = loc.endIndex;
         } else {
-          const lastElement = doc.body[doc.body.length - 1];
-          insertIndex = lastElement?.endIndex
-            ? lastElement.endIndex - 1
-            : 1;
+          insertIndex = getBodyEndIndex(doc.body) - 1;
           console.log(
             chalk.dim("  Bibliography will be appended at end of document."),
           );
