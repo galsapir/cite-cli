@@ -6,6 +6,7 @@ import {
   resolveArxiv,
   searchByTitle,
   canonicalIds,
+  extractIdentifierFromUrl,
 } from "../src/lib/resolver.js";
 
 describe("detectIdentifierType", () => {
@@ -55,6 +56,53 @@ describe("normalizeDoi", () => {
 
   it("returns bare DOI unchanged", () => {
     expect(normalizeDoi("10.2337/dc19-1028")).toBe("10.2337/dc19-1028");
+  });
+});
+
+describe("extractIdentifierFromUrl", () => {
+  it("extracts PMID from PubMed URLs", () => {
+    expect(extractIdentifierFromUrl("https://pubmed.ncbi.nlm.nih.gov/40665053/")).toEqual({
+      type: "pmid",
+      value: "40665053",
+    });
+    expect(extractIdentifierFromUrl("https://pubmed.ncbi.nlm.nih.gov/40665053")).toEqual({
+      type: "pmid",
+      value: "40665053",
+    });
+  });
+
+  it("extracts PMCID from PMC URLs", () => {
+    expect(extractIdentifierFromUrl("https://pmc.ncbi.nlm.nih.gov/articles/PMC12478425/")).toEqual({
+      type: "pmcid",
+      value: "PMC12478425",
+    });
+    expect(extractIdentifierFromUrl("https://pmc.ncbi.nlm.nih.gov/articles/PMC12478425")).toEqual({
+      type: "pmcid",
+      value: "PMC12478425",
+    });
+  });
+
+  it("constructs DOI from Nature URLs", () => {
+    expect(extractIdentifierFromUrl("https://www.nature.com/articles/s41467-025-67922-y")).toEqual({
+      type: "doi",
+      value: "10.1038/s41467-025-67922-y",
+    });
+    expect(extractIdentifierFromUrl("https://nature.com/articles/s41586-020-2649-2")).toEqual({
+      type: "doi",
+      value: "10.1038/s41586-020-2649-2",
+    });
+  });
+
+  it("extracts embedded DOI from arbitrary URLs", () => {
+    expect(extractIdentifierFromUrl("https://example.com/10.1234/foo-bar")).toEqual({
+      type: "doi",
+      value: "10.1234/foo-bar",
+    });
+  });
+
+  it("returns null for URLs with no extractable identifier", () => {
+    expect(extractIdentifierFromUrl("https://example.com/some-page")).toBeNull();
+    expect(extractIdentifierFromUrl("https://www.anthropic.com/research/building-effective-agents")).toBeNull();
   });
 });
 

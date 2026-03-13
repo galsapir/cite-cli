@@ -61,6 +61,29 @@ export function canonicalIds(csl: CslJson): string[] {
   return ids;
 }
 
+/** Extract a known identifier (PMID, PMCID, DOI) from a URL, or null */
+export function extractIdentifierFromUrl(
+  url: string,
+): { type: "pmid" | "pmcid" | "doi"; value: string } | null {
+  // PubMed: pubmed.ncbi.nlm.nih.gov/{pmid}
+  const pmidMatch = url.match(/pubmed\.ncbi\.nlm\.nih\.gov\/(\d+)/);
+  if (pmidMatch) return { type: "pmid", value: pmidMatch[1] };
+
+  // PMC: pmc.ncbi.nlm.nih.gov/articles/PMC{id}
+  const pmcMatch = url.match(/pmc\.ncbi\.nlm\.nih\.gov\/articles\/(PMC\d+)/);
+  if (pmcMatch) return { type: "pmcid", value: pmcMatch[1] };
+
+  // Nature: nature.com/articles/{id} → DOI 10.1038/{id}
+  const natureMatch = url.match(/nature\.com\/articles\/(?!10\.)([a-zA-Z0-9._-]+)/);
+  if (natureMatch) return { type: "doi", value: `10.1038/${natureMatch[1]}` };
+
+  // Embedded DOI anywhere in URL
+  const doiMatch = url.match(/10\.\d{4,}\/[^\s]+/);
+  if (doiMatch) return { type: "doi", value: doiMatch[0] };
+
+  return null;
+}
+
 /** Resolve a DOI via CrossRef content negotiation → CSL-JSON */
 export async function resolveDoi(doi: string): Promise<CslJson> {
   const normalizedDoi = normalizeDoi(doi);
