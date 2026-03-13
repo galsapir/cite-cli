@@ -13,6 +13,7 @@ import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevis
 import { loadConfig } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson } from "../types/index.js";
+import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
 
 export function registerInsertCommand(program: Command): void {
   program
@@ -170,26 +171,84 @@ export function registerInsertCommand(program: Command): void {
         }
       }
 
-      // Build the batch update request
+      // Build the batch update requests.
+      // Requests execute sequentially — insert text first, then style
+      // and name the range using post-insert indices.
+      const citationText = marker.trimStart(); // e.g. "[1]"
+      const citationStart = insertIndex + (marker.length - citationText.length);
+      const citationEnd = insertIndex + marker.length;
+
+      // Encode all cited keys into the hyperlink for durability
+      const linkKeys = keys.join(",");
+      const linkUrl = `${CITE_LINK_PREFIX}${linkKeys}`;
+
       const requests: docs_v1.Schema$Request[] = [
+        // 1. Insert the citation text (with leading space)
         {
           insertText: {
             location: { index: insertIndex },
             text: marker,
           },
         },
+        // 2. Add hyperlink to the citation text (not the leading space)
+        {
+          updateTextStyle: {
+            range: {
+              startIndex: citationStart,
+              endIndex: citationEnd,
+            },
+            textStyle: {
+              link: { url: linkUrl },
+            },
+            fields: "link",
+          },
+        },
       ];
 
-      // Sort in reverse index order (safety)
-      const sortedRequests = sortRequestsReverseIndex(requests);
+      // 3. Create a named range per cited key for programmatic lookup
+      const namedRangeRequests: docs_v1.Schema$Request[] = [];
+      for (const key of keys) {
+        namedRangeRequests.push({
+          createNamedRange: {
+            name: `${CITE_RANGE_PREFIX}${key}`,
+            range: {
+              startIndex: citationStart,
+              endIndex: citationEnd,
+            },
+          },
+        });
+      }
+      requests.push(...namedRangeRequests);
 
-      // Pre-write safety validation
-      validateBatchRequests(sortedRequests, doc.body);
+      // Pre-write safety validation (only checks insert/delete requests)
+      validateBatchRequests(requests, doc.body);
 
       // Execute
-      await batchUpdate(opts.doc, sortedRequests);
+      const replies = await batchUpdate(opts.doc, requests);
+
+      // Extract namedRangeIds from replies.
+      // Replies array mirrors requests array: [insertReply, styleReply, ...namedRangeReplies]
+      const namedRangeReplies = replies.slice(2); // skip insert + style replies
 
       // Update doc state
+      for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
+        const rangeId = namedRangeReplies[i]?.createNamedRange?.namedRangeId;
+
+        const existingEntry = docState.citations.find((c) => c.key === key);
+        if (existingEntry) {
+          // Re-citing an existing key — append the new named range ID
+          if (!existingEntry.namedRangeIds) existingEntry.namedRangeIds = [];
+          if (rangeId) existingEntry.namedRangeIds.push(rangeId);
+        } else {
+          // New citation — find it in newCitations and set the range ID
+          const nc = newCitations.find((c) => c.key === key);
+          if (nc && rangeId) {
+            nc.namedRangeIds = [rangeId];
+          }
+        }
+      }
+
       docState.citations.push(...newCitations);
       docState.lastSync = new Date().toISOString();
       docState.revisionId = doc.revisionId;
