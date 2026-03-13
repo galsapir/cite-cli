@@ -3,6 +3,7 @@
 
 import { google, type docs_v1 } from "googleapis";
 import { getGoogleAuth } from "./google-auth.js";
+import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 
 export interface DocContent {
   title: string;
@@ -132,11 +133,112 @@ export function findParagraph(
   return null;
 }
 
-/** Execute a batch update on a Google Doc */
+/** A citation occurrence found via named ranges in the document */
+export interface CitationOccurrence {
+  key: string;
+  namedRangeId: string;
+  startIndex: number;
+  endIndex: number;
+}
+
+/** Find all citation occurrences for a given key using named ranges */
+export function findCitationOccurrences(
+  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+  key: string,
+): CitationOccurrence[] {
+  const rangeName = `${CITE_RANGE_PREFIX}${key}`;
+  const ranges = namedRanges[rangeName];
+  if (!ranges) return [];
+
+  const occurrences: CitationOccurrence[] = [];
+  for (const nr of ranges) {
+    for (const range of nr.ranges || []) {
+      if (range.startIndex != null && range.endIndex != null && nr.namedRangeId) {
+        occurrences.push({
+          key,
+          namedRangeId: nr.namedRangeId,
+          startIndex: range.startIndex,
+          endIndex: range.endIndex,
+        });
+      }
+    }
+  }
+
+  return occurrences;
+}
+
+/** Find all citation occurrences across all keys */
+export function findAllCitationOccurrences(
+  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+): CitationOccurrence[] {
+  const occurrences: CitationOccurrence[] = [];
+  for (const [name, ranges] of Object.entries(namedRanges)) {
+    if (!name.startsWith(CITE_RANGE_PREFIX)) continue;
+    const key = name.slice(CITE_RANGE_PREFIX.length);
+    for (const nr of ranges) {
+      for (const range of nr.ranges || []) {
+        if (range.startIndex != null && range.endIndex != null && nr.namedRangeId) {
+          occurrences.push({
+            key,
+            namedRangeId: nr.namedRangeId,
+            startIndex: range.startIndex,
+            endIndex: range.endIndex,
+          });
+        }
+      }
+    }
+  }
+  return occurrences;
+}
+
+/** A citation found via hyperlink in the document (for paste repair) */
+export interface HyperlinkCitation {
+  keys: string[]; // cite-keys encoded in the URL
+  startIndex: number;
+  endIndex: number;
+  text: string; // the linked text content
+}
+
+/** Scan document body for citation hyperlinks matching our URL pattern */
+export function findCitationHyperlinks(
+  elements: docs_v1.Schema$StructuralElement[],
+): HyperlinkCitation[] {
+  const results: HyperlinkCitation[] = [];
+
+  for (const el of elements) {
+    if (el.paragraph) {
+      for (const pe of el.paragraph.elements || []) {
+        const link = pe.textRun?.textStyle?.link?.url;
+        if (link && link.startsWith(CITE_LINK_PREFIX)) {
+          const keysStr = link.slice(CITE_LINK_PREFIX.length);
+          const keys = keysStr.split(",").filter(Boolean);
+          if (keys.length > 0 && pe.startIndex != null && pe.endIndex != null) {
+            results.push({
+              keys,
+              startIndex: pe.startIndex,
+              endIndex: pe.endIndex,
+              text: pe.textRun?.content || "",
+            });
+          }
+        }
+      }
+    } else if (el.table) {
+      for (const row of el.table.tableRows || []) {
+        for (const cell of row.tableCells || []) {
+          results.push(...findCitationHyperlinks(cell.content || []));
+        }
+      }
+    }
+  }
+
+  return results;
+}
+
+/** Execute a batch update on a Google Doc, returns per-request replies */
 export async function batchUpdate(
   docId: string,
   requests: docs_v1.Schema$Request[],
-): Promise<void> {
+): Promise<docs_v1.Schema$Response[]> {
   const auth = await getGoogleAuth();
   if (!auth) {
     throw new Error(
@@ -145,8 +247,9 @@ export async function batchUpdate(
   }
 
   const docs = google.docs({ version: "v1", auth });
-  await docs.documents.batchUpdate({
+  const res = await docs.documents.batchUpdate({
     documentId: docId,
     requestBody: { requests },
   });
+  return res.data.replies || [];
 }

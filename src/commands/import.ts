@@ -7,7 +7,7 @@ import chalk from "chalk";
 import { readFile } from "node:fs/promises";
 import { parseBibtex, parseRis } from "../lib/bibtex-parser.js";
 import { loadLibrary, saveLibrary, generateCiteKey } from "../lib/library.js";
-import { addToZotero } from "../lib/zotero.js";
+import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { fetchWithTimeout } from "../lib/fetch-with-timeout.js";
 import { loadConfig } from "../lib/config.js";
 import { formatReference } from "../lib/format.js";
@@ -23,6 +23,7 @@ export function registerImportCommand(program: Command): void {
     .description("Import references from a BibTeX file")
     .argument("<file>", "Path to BibTeX file")
     .option("--library <id>", "Target library (overrides default)")
+    .option("--collection <name>", "Zotero collection to add to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (file: string, opts) => {
       await importFromFile(file, "bibtex", opts);
@@ -33,6 +34,7 @@ export function registerImportCommand(program: Command): void {
     .description("Import references from a RIS file")
     .argument("<file>", "Path to RIS file")
     .option("--library <id>", "Target library (overrides default)")
+    .option("--collection <name>", "Zotero collection to add to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (file: string, opts) => {
       await importFromFile(file, "ris", opts);
@@ -44,6 +46,7 @@ export function registerImportCommand(program: Command): void {
     .option("--project <id>", "SciWheel project ID")
     .option("--token <token>", "SciWheel API bearer token")
     .option("--library <id>", "Target library (overrides default)")
+    .option("--collection <name>", "Zotero collection to add to")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const projectId = opts.project;
@@ -126,6 +129,14 @@ async function importCslEntries(
   const config = await loadConfig();
   const libraryId = opts.library || config.zotero?.defaultLibrary || "local";
 
+  // Resolve collection
+  const collectionName = await getCollectionName(libraryId, opts.collection);
+  let collectionKey: string | undefined;
+  if (collectionName) {
+    collectionKey = await resolveCollectionKey(libraryId, collectionName);
+    console.log(chalk.dim(`  → Collection: ${collectionName}`));
+  }
+
   console.log(`Importing ${cslEntries.length} references to library "${libraryId}"...`);
 
   if (!opts.yes) {
@@ -156,7 +167,7 @@ async function importCslEntries(
       };
 
       // Try to add to Zotero (best-effort)
-      const zoteroKey = await addToZotero(libraryId, csl);
+      const zoteroKey = await addToZotero(libraryId, csl, collectionKey);
       if (zoteroKey) entry.zoteroKey = zoteroKey;
 
       entries.push(entry);
