@@ -5,16 +5,17 @@ import { Command } from "commander";
 import chalk from "chalk";
 import { initDocState } from "../lib/doc-state.js";
 import type { CitationStyle } from "../types/index.js";
-import { loadConfig } from "../lib/config.js";
+import { loadConfig, resolveDocId } from "../lib/config.js";
 
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
     .description("Initialize a Google Doc for citation management")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .option("--library <id>", "Library ID (e.g. group/12345)")
     .option("--style <style>", "Citation style", "vancouver")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const config = await loadConfig();
       const libraryId =
         opts.library ||

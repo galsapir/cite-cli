@@ -66,6 +66,8 @@ export interface CiteConfig {
     tokenPath?: string;
   };
   defaults?: {
+    doc?: string;
+    collection?: string;
     style?: string;
     confirmBeforeWrite?: boolean;
     autoSyncBib?: boolean;

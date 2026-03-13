@@ -9,6 +9,7 @@ import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
+import { resolveDocId } from "../lib/config.js";
 import { formatReference } from "../lib/format.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
@@ -17,11 +18,12 @@ export function registerRemoveCommand(program: Command): void {
   program
     .command("remove")
     .description("Remove a citation from a Google Doc and renumber remaining citations")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .requiredOption("--key <key>", "Citation key to remove")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(

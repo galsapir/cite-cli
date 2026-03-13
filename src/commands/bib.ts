@@ -9,18 +9,20 @@ import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, batchUpdate, findAllCitationOccurrences } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests, getBodyEndIndex } from "../lib/safety.js";
+import { resolveDocId } from "../lib/config.js";
 import type { docs_v1 } from "googleapis";
 
 export function registerBibCommand(program: Command): void {
   program
     .command("bib")
     .description("Generate or update the bibliography section in a Google Doc")
-    .requiredOption("--doc <docId>", "Google Doc ID")
+    .option("--doc <docId>", "Google Doc ID")
     .option("--style <style>", "Citation style override")
     .option("--after <text>", "Insert bibliography after this text (first time only)")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
+      opts.doc = await resolveDocId(opts.doc);
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(
