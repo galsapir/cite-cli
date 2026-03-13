@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
-import { logOperation, checkRevisionId, sortRequestsReverseIndex } from "../lib/safety.js";
+import { logOperation, checkRevisionId, sortRequestsReverseIndex, validateBatchRequests } from "../lib/safety.js";
 import { formatReference } from "../lib/format.js";
 import type { docs_v1 } from "googleapis";
 
@@ -178,6 +178,10 @@ export function registerRemoveCommand(program: Command): void {
       // preventing earlier deletions from shifting subsequent indices
       if (requests.length > 0) {
         const sortedRequests = sortRequestsReverseIndex(requests);
+
+        // Pre-write safety validation
+        validateBatchRequests(sortedRequests, doc.body);
+
         await batchUpdate(opts.doc, sortedRequests);
       }
 
