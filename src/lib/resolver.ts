@@ -341,19 +341,40 @@ export async function resolve(
     case "arxiv":
       csl = await resolveArxiv(input);
       break;
-    case "url":
-      // Try to extract DOI from URL, fall back to title search
-      const doiMatch = input.match(/10\.\d{4,}\/[^\s]+/);
-      if (doiMatch) {
-        csl = await resolveDoi(doiMatch[0]);
-      } else {
-        const results = await searchByTitle(input);
-        if (results.length === 0) {
-          throw new Error(`No results found for URL: ${input}`);
+    case "url": {
+      // Step 1: Try to extract identifier from known URL patterns
+      const extracted = extractIdentifierFromUrl(input);
+      if (extracted) {
+        switch (extracted.type) {
+          case "pmid":
+            csl = await resolvePmid(extracted.value);
+            break;
+          case "pmcid":
+            csl = await resolvePmcid(extracted.value);
+            break;
+          case "doi":
+            csl = await resolveDoi(extracted.value);
+            break;
         }
-        csl = results[0];
+        break;
       }
+
+      // Step 2: Scrape HTML meta tags from the URL
+      const scraped = await scrapeMetaFromUrl(input);
+      if (scraped.doi) {
+        csl = await resolveDoi(scraped.doi);
+        break;
+      }
+
+      // Step 3: Semantic Scholar fallback (use scraped title if available)
+      const query = scraped.title ?? input;
+      const results = await searchByTitle(query);
+      if (results.length === 0) {
+        throw new Error(`No results found for URL: ${input}`);
+      }
+      csl = results[0];
       break;
+    }
     case "title":
       const titleResults = await searchByTitle(input);
       if (titleResults.length === 0) {

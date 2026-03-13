@@ -9,6 +9,7 @@ import {
   canonicalIds,
   extractIdentifierFromUrl,
   scrapeMetaFromUrl,
+  resolve,
 } from "../src/lib/resolver.js";
 
 describe("detectIdentifierType", () => {
@@ -291,6 +292,114 @@ describe("searchByTitle", () => {
     const error = await promise;
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toMatch(/rate limit/i);
+  });
+});
+
+describe("resolve URL case", () => {
+  it("resolves PubMed URLs via PMID extraction", async () => {
+    const fakeCsl = { title: "PubMed Paper", author: [{ given: "A", family: "Smith" }] };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(fakeCsl), { status: 200 }),
+    );
+
+    const result = await resolve("https://pubmed.ncbi.nlm.nih.gov/40665053/", []);
+    expect(result.csl.title).toBe("PubMed Paper");
+    expect(result.identifierType).toBe("url");
+
+    // Should have called PubMed CSL endpoint with extracted PMID
+    const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(calledUrl).toContain("40665053");
+  });
+
+  it("resolves PMC URLs via PMCID→PMID conversion", async () => {
+    const converterXml = `<?xml version="1.0"?>
+<pmcids status="ok">
+  <record requested-id="PMC12478425" pmcid="PMC12478425" pmid="40665053" />
+</pmcids>`;
+    const fakeCsl = { title: "PMC Paper", author: [] };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(converterXml, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(fakeCsl), { status: 200 }));
+
+    const result = await resolve("https://pmc.ncbi.nlm.nih.gov/articles/PMC12478425/", []);
+    expect(result.csl.title).toBe("PMC Paper");
+  });
+
+  it("resolves Nature URLs via constructed DOI", async () => {
+    const crossrefData = {
+      message: {
+        type: "article-journal",
+        title: ["Nature Paper"],
+        DOI: "10.1038/s41467-025-67922-y",
+        author: [{ given: "A", family: "Author" }],
+      },
+    };
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify(crossrefData), { status: 200 }),
+    );
+
+    const result = await resolve("https://www.nature.com/articles/s41467-025-67922-y", []);
+    expect(result.csl.title).toBe("Nature Paper");
+
+    const calledUrl = vi.mocked(fetch).mock.calls[0][0] as string;
+    expect(calledUrl).toContain("10.1038");
+  });
+
+  it("falls back to HTML meta scraping when no pattern matches", async () => {
+    // First call: scrape HTML → find citation_doi
+    const html = `<html><head>
+      <meta name="citation_doi" content="10.1016/j.cell.2021.01.001">
+    </head></html>`;
+    // Second call: resolve DOI via CrossRef
+    const crossrefData = {
+      message: {
+        type: "article-journal",
+        title: ["Cell Paper"],
+        DOI: "10.1016/j.cell.2021.01.001",
+      },
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(html, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(crossrefData), { status: 200 }));
+
+    const result = await resolve("https://www.cell.com/some-article", []);
+    expect(result.csl.title).toBe("Cell Paper");
+  });
+
+  it("falls back to Semantic Scholar with scraped title when only title found", async () => {
+    // First call: scrape HTML → find citation_title but no DOI
+    const html = `<html><head>
+      <meta name="citation_title" content="Scraped Paper Title">
+    </head></html>`;
+    // Second call: Semantic Scholar search
+    const ssData = {
+      data: [{ paperId: "abc", title: "Scraped Paper Title", authors: [], year: 2024 }],
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(html, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ssData), { status: 200 }));
+
+    const result = await resolve("https://unknown-publisher.com/paper", []);
+    expect(result.csl.title).toBe("Scraped Paper Title");
+  });
+
+  it("falls back to Semantic Scholar with raw URL as last resort", async () => {
+    // First call: scrape HTML → no meta tags
+    const html = `<html><head><title>Blog</title></head></html>`;
+    // Second call: Semantic Scholar search
+    const ssData = {
+      data: [{ paperId: "xyz", title: "Some Result", authors: [], year: 2023 }],
+    };
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(html, { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(ssData), { status: 200 }));
+
+    const result = await resolve("https://unknown.com/something", []);
+    expect(result.csl.title).toBe("Some Result");
   });
 });
 
