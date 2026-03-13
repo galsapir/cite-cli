@@ -83,11 +83,9 @@ export async function resolveDoi(doi: string): Promise<CslJson> {
 /** Resolve a PubMed ID via NCBI E-utilities */
 export async function resolvePmid(pmidInput: string): Promise<CslJson> {
   const pmid = pmidInput.replace(/^pmid:/i, "").trim();
-  const url = `https://api.ncbi.nlm.nih.gov/lit/ctxp/v1/pubmed/?format=csl&id=${pmid}`;
+  const url = `https://pmc.ncbi.nlm.nih.gov/api/ctxp/v1/pubmed/?format=csl&id=${pmid}`;
 
-  const resp = await fetchWithTimeout(url, {
-    headers: { Accept: "application/json" },
-  });
+  const resp = await fetchWithTimeout(url);
 
   if (!resp.ok) {
     throw new Error(
@@ -120,14 +118,19 @@ export async function resolveArxiv(arxivInput: string): Promise<CslJson> {
   const xml = await resp.text();
 
   // Basic XML parsing for arXiv Atom feed
-  const getTag = (tag: string): string => {
-    const match = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+  const getTag = (tag: string, scope?: string): string => {
+    const source = scope ?? xml;
+    const match = source.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
     return match ? match[1].trim() : "";
   };
 
-  const title = getTag("title").replace(/\n\s+/g, " ");
-  const summary = getTag("summary").replace(/\n\s+/g, " ");
-  const published = getTag("published");
+  // Extract from the <entry> block to avoid matching feed-level <title>
+  const entryMatch = xml.match(/<entry>([\s\S]*?)<\/entry>/);
+  const entry = entryMatch ? entryMatch[1] : xml;
+
+  const title = getTag("title", entry).replace(/\n\s+/g, " ");
+  const summary = getTag("summary", entry).replace(/\n\s+/g, " ");
+  const published = getTag("published", entry);
 
   // Extract authors
   const authorMatches = xml.matchAll(/<author>\s*<name>([^<]+)<\/name>/g);
@@ -164,11 +167,24 @@ export async function searchByTitle(
 ): Promise<CslJson[]> {
   const url = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${limit}&fields=title,authors,year,externalIds,journal,abstract`;
 
-  const resp = await fetchWithTimeout(url);
-  if (!resp.ok) {
-    throw new Error(
-      `Semantic Scholar search failed: ${resp.status} ${resp.statusText}`,
-    );
+  const maxRetries = 3;
+  let resp: Response | undefined;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    resp = await fetchWithTimeout(url);
+    if (resp.status !== 429) break;
+    if (attempt < maxRetries) {
+      const delayMs = 1000 * 2 ** attempt;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+
+  if (!resp || !resp.ok) {
+    const status = resp?.status ?? 0;
+    const statusText = resp?.statusText ?? "Unknown";
+    const msg = status === 429
+      ? `Semantic Scholar rate limit exceeded after ${maxRetries + 1} attempts`
+      : `Semantic Scholar search failed: ${status} ${statusText}`;
+    throw new Error(msg);
   }
 
   const data = (await resp.json()) as any;
