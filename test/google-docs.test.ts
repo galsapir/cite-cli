@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { findTextLocation, extractText, findParagraph, findCitationOccurrences, findAllCitationOccurrences } from "../src/lib/google-docs.js";
+import { findTextLocation, extractText, findParagraph, findCitationOccurrences, findAllCitationOccurrences, findCitationHyperlinks } from "../src/lib/google-docs.js";
 import type { docs_v1 } from "googleapis";
 
 function makeDoc(paragraphs: string[]): docs_v1.Schema$StructuralElement[] {
@@ -128,6 +128,69 @@ describe("findCitationOccurrences", () => {
     const occs = findCitationOccurrences(namedRanges, "smith2021");
     expect(occs).toHaveLength(1);
     expect(occs[0].namedRangeId).toBe("nr3");
+  });
+});
+
+describe("findCitationHyperlinks", () => {
+  function makeLinkedDoc(links: Array<{ text: string; url: string }>): docs_v1.Schema$StructuralElement[] {
+    let index = 1;
+    const elements: docs_v1.Schema$ParagraphElement[] = links.map((link) => {
+      const startIndex = index;
+      const endIndex = startIndex + link.text.length;
+      index = endIndex;
+      return {
+        startIndex,
+        endIndex,
+        textRun: {
+          content: link.text,
+          textStyle: { link: { url: link.url } },
+        },
+      };
+    });
+
+    return [{
+      startIndex: 1,
+      endIndex: index,
+      paragraph: { elements },
+    }];
+  }
+
+  it("finds citation hyperlinks matching our URL pattern", () => {
+    const doc = makeLinkedDoc([
+      { text: "[1]", url: "https://cite-cli.local/ref/harris2020" },
+      { text: "[2]", url: "https://cite-cli.local/ref/smith2021" },
+    ]);
+
+    const links = findCitationHyperlinks(doc);
+    expect(links).toHaveLength(2);
+    expect(links[0].keys).toEqual(["harris2020"]);
+    expect(links[1].keys).toEqual(["smith2021"]);
+  });
+
+  it("handles multi-key hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "[1,2]", url: "https://cite-cli.local/ref/harris2020,smith2021" },
+    ]);
+
+    const links = findCitationHyperlinks(doc);
+    expect(links).toHaveLength(1);
+    expect(links[0].keys).toEqual(["harris2020", "smith2021"]);
+  });
+
+  it("ignores non-citation hyperlinks", () => {
+    const doc = makeLinkedDoc([
+      { text: "click here", url: "https://example.com" },
+      { text: "[1]", url: "https://cite-cli.local/ref/harris2020" },
+    ]);
+
+    const links = findCitationHyperlinks(doc);
+    expect(links).toHaveLength(1);
+    expect(links[0].keys).toEqual(["harris2020"]);
+  });
+
+  it("returns empty for no hyperlinks", () => {
+    const doc = makeDoc(["plain text"]);
+    expect(findCitationHyperlinks(doc)).toEqual([]);
   });
 });
 

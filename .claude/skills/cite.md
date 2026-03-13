@@ -78,6 +78,14 @@ Remove a citation and renumber remaining ones.
 cite remove --doc <DOC_ID> --key <key> [--dry-run] [-y]
 ```
 
+### cite refresh
+Repair citations after document reorganization (copy/paste, moves).
+Reconstructs named ranges from hyperlinks, renumbers in document order.
+```bash
+cite refresh --doc <DOC_ID> --dry-run   # preview what will change
+cite refresh --doc <DOC_ID>             # apply repairs
+```
+
 ### cite audit
 Check citation consistency: missing keys, numbering gaps, orphaned entries.
 ```bash
@@ -150,7 +158,14 @@ cite config style apa --doc <DOC_ID>
 cite bib --doc <DOC_ID>   # regenerates in new style
 ```
 
-### Full audit after reorganizing a document
+### Repair after reorganizing a document
+```bash
+cite refresh --doc <DOC_ID> --dry-run   # preview changes
+cite refresh --doc <DOC_ID>             # apply
+cite bib --doc <DOC_ID>                 # regenerate bibliography
+```
+
+### Full audit
 ```bash
 cite audit --doc <DOC_ID>
 # Review output for untracked markers, gaps, or missing keys
