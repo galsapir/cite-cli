@@ -74,33 +74,43 @@ describe("findParagraph", () => {
 });
 
 describe("findCitationOccurrences", () => {
-  const namedRanges: Record<string, docs_v1.Schema$NamedRange[]> = {
-    "cite:harris2020": [
-      {
-        namedRangeId: "nr1",
-        name: "cite:harris2020",
-        ranges: [{ startIndex: 10, endIndex: 13 }],
-      },
-      {
-        namedRangeId: "nr2",
-        name: "cite:harris2020",
-        ranges: [{ startIndex: 50, endIndex: 53 }],
-      },
-    ],
-    "cite:smith2021": [
-      {
-        namedRangeId: "nr3",
-        name: "cite:smith2021",
-        ranges: [{ startIndex: 30, endIndex: 33 }],
-      },
-    ],
-    "cite-bibliography": [
-      {
-        namedRangeId: "bib1",
-        name: "cite-bibliography",
-        ranges: [{ startIndex: 100, endIndex: 200 }],
-      },
-    ],
+  // Google Docs returns namedRanges as { [name]: { name, namedRanges: [...] } }
+  const namedRanges: Record<string, docs_v1.Schema$NamedRanges> = {
+    "cite:harris2020": {
+      name: "cite:harris2020",
+      namedRanges: [
+        {
+          namedRangeId: "nr1",
+          name: "cite:harris2020",
+          ranges: [{ startIndex: 10, endIndex: 13 }],
+        },
+        {
+          namedRangeId: "nr2",
+          name: "cite:harris2020",
+          ranges: [{ startIndex: 50, endIndex: 53 }],
+        },
+      ],
+    },
+    "cite:smith2021": {
+      name: "cite:smith2021",
+      namedRanges: [
+        {
+          namedRangeId: "nr3",
+          name: "cite:smith2021",
+          ranges: [{ startIndex: 30, endIndex: 33 }],
+        },
+      ],
+    },
+    "cite-bibliography": {
+      name: "cite-bibliography",
+      namedRanges: [
+        {
+          namedRangeId: "bib1",
+          name: "cite-bibliography",
+          ranges: [{ startIndex: 100, endIndex: 200 }],
+        },
+      ],
+    },
   };
 
   it("finds all occurrences for a key", () => {
@@ -196,10 +206,19 @@ describe("findCitationHyperlinks", () => {
 
 describe("findAllCitationOccurrences", () => {
   it("finds all cite: ranges and ignores non-citation ranges", () => {
-    const namedRanges: Record<string, docs_v1.Schema$NamedRange[]> = {
-      "cite:a": [{ namedRangeId: "r1", name: "cite:a", ranges: [{ startIndex: 5, endIndex: 8 }] }],
-      "cite:b": [{ namedRangeId: "r2", name: "cite:b", ranges: [{ startIndex: 20, endIndex: 23 }] }],
-      "cite-bibliography": [{ namedRangeId: "bib", name: "cite-bibliography", ranges: [{ startIndex: 100, endIndex: 200 }] }],
+    const namedRanges: Record<string, docs_v1.Schema$NamedRanges> = {
+      "cite:a": {
+        name: "cite:a",
+        namedRanges: [{ namedRangeId: "r1", name: "cite:a", ranges: [{ startIndex: 5, endIndex: 8 }] }],
+      },
+      "cite:b": {
+        name: "cite:b",
+        namedRanges: [{ namedRangeId: "r2", name: "cite:b", ranges: [{ startIndex: 20, endIndex: 23 }] }],
+      },
+      "cite-bibliography": {
+        name: "cite-bibliography",
+        namedRanges: [{ namedRangeId: "bib", name: "cite-bibliography", ranges: [{ startIndex: 100, endIndex: 200 }] }],
+      },
     };
 
     const all = findAllCitationOccurrences(namedRanges);
