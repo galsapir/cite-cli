@@ -109,9 +109,15 @@ export function generateCiteKey(
   let authorPart = "unknown";
   if (csl.author && csl.author.length > 0) {
     const first = csl.author[0];
-    authorPart = (first.family || first.literal || "unknown")
-      .toLowerCase()
-      .replace(/[^a-z]/g, "");
+    if (first.family) {
+      authorPart = first.family.toLowerCase().replace(/[^a-z]/g, "");
+    } else if (first.literal) {
+      // Organisational authors (consortia, working groups) often have long
+      // multi-word literals. Use the first alphanumeric token so we get
+      // `score2021` instead of `scoreworkinggroupandesccardiovascular...`.
+      const firstWord = first.literal.split(/\s+/)[0] || "unknown";
+      authorPart = firstWord.toLowerCase().replace(/[^a-z0-9]/g, "") || "unknown";
+    }
   }
 
   const yearStr = getYear(csl);

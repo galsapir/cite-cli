@@ -38,12 +38,22 @@ describe("generateCiteKey", () => {
     expect(generateCiteKey(csl, [])).toBe("smith");
   });
 
-  it("handles literal author name", () => {
+  it("handles literal author name by taking the first token", () => {
     const csl: CslJson = {
       ...baseCsl,
       author: [{ literal: "WHO Working Group" }],
     };
-    expect(generateCiteKey(csl, [])).toBe("whoworkinggroup2021");
+    // Consortium / organisational authors often have multi-word literals.
+    // We take only the first token to avoid keys like `whoworkinggroup2021`.
+    expect(generateCiteKey(csl, [])).toBe("who2021");
+  });
+
+  it("preserves digits in organisational author keys", () => {
+    const csl: CslJson = {
+      ...baseCsl,
+      author: [{ literal: "SCORE2 working group and ESC Cardiovascular risk collaboration" }],
+    };
+    expect(generateCiteKey(csl, [])).toBe("score22021");
   });
 
   it("handles raw date format", () => {
