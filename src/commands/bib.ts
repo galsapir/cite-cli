@@ -113,13 +113,14 @@ export function registerBibCommand(program: Command): void {
       const requests: docs_v1.Schema$Request[] = [];
       const bibRangeName = docState.bibNamedRange || "cite-bibliography";
       const namedRanges = doc.namedRanges;
-      const existingRange = namedRanges?.[bibRangeName];
+      // Google Docs `namedRanges[name]` is a wrapper { name, namedRanges: [...] }
+      const existingRanges = namedRanges?.[bibRangeName]?.namedRanges ?? [];
 
       let insertIndex: number;
 
-      if (existingRange && existingRange.length > 0) {
+      if (existingRanges.length > 0) {
         // Find the range spanning the existing bibliography
-        const nr = existingRange[0];
+        const nr = existingRanges[0];
         const range = nr.ranges?.[0];
         if (range?.startIndex != null && range?.endIndex != null) {
           insertIndex = range.startIndex;

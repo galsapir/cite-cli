@@ -9,7 +9,9 @@ export interface DocContent {
   title: string;
   revisionId: string;
   body: docs_v1.Schema$StructuralElement[];
-  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>;
+  // Google Docs returns `namedRanges` keyed by name, with each entry wrapping
+  // an array of NamedRange occurrences — not a bare NamedRange[].
+  namedRanges: docs_v1.Schema$Document["namedRanges"];
 }
 
 export interface TextLocation {
@@ -37,7 +39,7 @@ export async function fetchDoc(docId: string): Promise<DocContent> {
     title: doc.title || "Untitled",
     revisionId: doc.revisionId || "",
     body: doc.body?.content || [],
-    namedRanges: (doc.namedRanges as Record<string, docs_v1.Schema$NamedRange[]>) || {},
+    namedRanges: doc.namedRanges || {},
   };
 }
 
@@ -141,14 +143,26 @@ export interface CitationOccurrence {
   endIndex: number;
 }
 
+/**
+ * Google Docs returns `namedRanges` as `{ [name]: { name, namedRanges: NamedRange[] } }`
+ * — a wrapper object keyed by name, not a bare array. Unwrap to the inner array.
+ */
+function unwrapNamedRanges(
+  namedRanges: docs_v1.Schema$Document["namedRanges"],
+  name: string,
+): docs_v1.Schema$NamedRange[] {
+  const entry = namedRanges?.[name];
+  return entry?.namedRanges ?? [];
+}
+
 /** Find all citation occurrences for a given key using named ranges */
 export function findCitationOccurrences(
-  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+  namedRanges: docs_v1.Schema$Document["namedRanges"],
   key: string,
 ): CitationOccurrence[] {
   const rangeName = `${CITE_RANGE_PREFIX}${key}`;
-  const ranges = namedRanges[rangeName];
-  if (!ranges) return [];
+  const ranges = unwrapNamedRanges(namedRanges, rangeName);
+  if (ranges.length === 0) return [];
 
   const occurrences: CitationOccurrence[] = [];
   for (const nr of ranges) {
@@ -169,12 +183,13 @@ export function findCitationOccurrences(
 
 /** Find all citation occurrences across all keys */
 export function findAllCitationOccurrences(
-  namedRanges: Record<string, docs_v1.Schema$NamedRange[]>,
+  namedRanges: docs_v1.Schema$Document["namedRanges"],
 ): CitationOccurrence[] {
   const occurrences: CitationOccurrence[] = [];
-  for (const [name, ranges] of Object.entries(namedRanges)) {
+  for (const name of Object.keys(namedRanges ?? {})) {
     if (!name.startsWith(CITE_RANGE_PREFIX)) continue;
     const key = name.slice(CITE_RANGE_PREFIX.length);
+    const ranges = unwrapNamedRanges(namedRanges, name);
     for (const nr of ranges) {
       for (const range of nr.ranges || []) {
         if (range.startIndex != null && range.endIndex != null && nr.namedRangeId) {
