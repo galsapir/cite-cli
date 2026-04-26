@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary, addToLibrary } from "../lib/library.js";
 import { fetchDoc, findAcademicHyperlinks, batchUpdate } from "../lib/google-docs.js";
 import type { AcademicHyperlink } from "../lib/google-docs.js";
-import { resolve } from "../lib/resolver.js";
+import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
@@ -76,11 +76,15 @@ export function registerScanCommand(program: Command): void {
       const resolved: ResolvedHyperlink[] = [];
       const newEntries: LibraryEntry[] = [];
 
-      // Build DOI→key index for O(1) dedup lookups
-      const doiToKey = new Map<string, string>();
-      for (const e of library) {
-        if (e.csl.DOI) doiToKey.set(e.csl.DOI, e.key);
-      }
+      // Build identifier→key index for O(1) dedup lookups.
+      // Dedupes on DOI, PMID, arXiv id, and canonical URL so that non-DOI
+      // references (e.g. arXiv preprints) don't produce suffixed duplicates
+      // when the same URL appears multiple times in the doc.
+      const idToKey = new Map<string, string>();
+      const indexEntry = (csl: CslJson, key: string) => {
+        for (const id of canonicalIds(csl)) idToKey.set(id, key);
+      };
+      for (const e of library) indexEntry(e.csl, e.key);
 
       // Track the next available citation index (avoids recalculating max each iteration)
       let nextIndex = docState.citations.length > 0
@@ -94,8 +98,12 @@ export function registerScanCommand(program: Command): void {
         try {
           const result = await resolve(hl.url, [...existingKeys, ...newEntries.map((e) => e.key)]);
 
-          // Check if this reference already exists (by DOI)
-          const existingKey = result.csl.DOI ? doiToKey.get(result.csl.DOI) : undefined;
+          // Check if this reference already exists (by DOI, PMID, arXiv id, or URL)
+          let existingKey: string | undefined;
+          for (const id of canonicalIds(result.csl)) {
+            const hit = idToKey.get(id);
+            if (hit) { existingKey = hit; break; }
+          }
 
           let key: string;
           let isNew: boolean;
@@ -111,7 +119,7 @@ export function registerScanCommand(program: Command): void {
               csl: result.csl,
               addedAt: new Date().toISOString(),
             });
-            if (result.csl.DOI) doiToKey.set(result.csl.DOI, key);
+            indexEntry(result.csl, key);
           }
 
           // Determine citation index

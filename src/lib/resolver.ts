@@ -37,6 +37,30 @@ export function normalizeDoi(input: string): string {
   return doi;
 }
 
+/**
+ * Return the set of canonical identifiers for a CSL entry, used for
+ * deduplicating references across a scan batch. Covers DOI, PMID, arXiv id,
+ * and a normalised URL so that the same paper referenced by different URL
+ * forms (or an arXiv preprint with no DOI) maps to a single library entry.
+ */
+export function canonicalIds(csl: CslJson): string[] {
+  const ids: string[] = [];
+  if (csl.DOI) ids.push(`doi:${csl.DOI.toLowerCase()}`);
+  if (csl.PMID) ids.push(`pmid:${csl.PMID}`);
+  // csl.id is set to `arxiv:<id>` by resolveArxiv
+  if (typeof csl.id === "string" && /^arxiv:/i.test(csl.id)) {
+    ids.push(csl.id.toLowerCase().replace(/v\d+$/, ""));
+  }
+  if (csl.URL) {
+    // Strip trailing slash + version suffix; lowercase scheme/host for stability.
+    const u = csl.URL.trim()
+      .replace(/\/$/, "")
+      .replace(/^(https?:\/\/[^/]+)/i, (_, host) => host.toLowerCase());
+    ids.push(`url:${u}`);
+  }
+  return ids;
+}
+
 /** Resolve a DOI via CrossRef content negotiation → CSL-JSON */
 export async function resolveDoi(doi: string): Promise<CslJson> {
   const normalizedDoi = normalizeDoi(doi);

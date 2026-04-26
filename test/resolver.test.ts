@@ -5,6 +5,7 @@ import {
   resolvePmid,
   resolveArxiv,
   searchByTitle,
+  canonicalIds,
 } from "../src/lib/resolver.js";
 
 describe("detectIdentifierType", () => {
@@ -156,5 +157,37 @@ describe("resolveDoi error handling", () => {
       new Response("not json", { status: 200 }),
     );
     await expect(resolveDoi("10.1234/fake")).rejects.toThrow(/parse|json|unexpected/i);
+  });
+});
+
+describe("canonicalIds", () => {
+  it("returns DOI, PMID, arXiv id, and URL identifiers", () => {
+    const ids = canonicalIds({
+      id: "arxiv:2508.20148",
+      type: "article",
+      title: "t",
+      DOI: "10.1234/abc",
+      PMID: "31177185",
+      URL: "https://arxiv.org/abs/2508.20148",
+    });
+    expect(ids).toContain("doi:10.1234/abc");
+    expect(ids).toContain("pmid:31177185");
+    expect(ids).toContain("arxiv:2508.20148");
+    expect(ids).toContain("url:https://arxiv.org/abs/2508.20148");
+  });
+
+  it("lowercases and normalises URLs + DOIs for stable dedup", () => {
+    const a = canonicalIds({ id: "x", type: "article", title: "t", DOI: "10.1234/AbC", URL: "HTTPS://Arxiv.ORG/abs/2508.20148/" });
+    const b = canonicalIds({ id: "y", type: "article", title: "t", DOI: "10.1234/abc", URL: "https://arxiv.org/abs/2508.20148" });
+    expect(a).toEqual(b);
+  });
+
+  it("strips arXiv version suffix from id", () => {
+    const ids = canonicalIds({ id: "arxiv:2508.20148v3", type: "article", title: "t" });
+    expect(ids).toContain("arxiv:2508.20148");
+  });
+
+  it("returns an empty list when no identifiers are present", () => {
+    expect(canonicalIds({ id: "local:1", type: "article", title: "t" })).toEqual([]);
   });
 });
