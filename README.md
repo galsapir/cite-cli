@@ -15,7 +15,7 @@ cite init --doc <DOC_ID> --style vancouver   # initialize a doc
 cite use --doc <DOC_ID> --collection my-paper  # set active doc + collection
 
 # 2. Write in Google Docs
-#    Paste DOI/PubMed/arXiv URLs as hyperlinks while you write
+#    Paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks while you write
 
 # 3. Process references with one command
 cite scan              # finds pasted URLs, resolves them, inserts [1] [2] etc.
@@ -73,7 +73,7 @@ See [docs/usage.md](docs/usage.md) for full command reference.
 
 ## Features
 
-- **Scan & cite** — paste DOI/PubMed/arXiv URLs in your doc, run `cite scan` to convert them all to formatted citations
+- **Scan & cite** — paste DOI/PubMed/PMC/arXiv/Nature URLs in your doc, run `cite scan` to convert them all to formatted citations
 - **Named ranges + hyperlinks** — citations survive document reorganization and copy/paste
 - **Zotero collections** — organize references into collections per paper
 - **Multiple citation styles** — Vancouver (default), APA, Nature, IEEE, Chicago

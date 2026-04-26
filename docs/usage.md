@@ -24,7 +24,7 @@ cite use --clear                                 # clear active context
 
 ## scan
 
-Scan a Google Doc for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/arXiv URLs as hyperlinks while writing, then run `cite scan` to process them all.
+Scan a Google Doc for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks while writing, then run `cite scan` to process them all.
 
 ```bash
 cite scan                          # scan active doc
@@ -36,12 +36,14 @@ cite scan --collection my-paper    # add new refs to a collection
 **Detected URL patterns:**
 - `https://doi.org/10.xxx` — DOI
 - `https://pubmed.ncbi.nlm.nih.gov/12345` — PubMed
+- `https://pmc.ncbi.nlm.nih.gov/articles/PMC12345` — PMC (resolved via PMCID→PMID conversion)
 - `https://arxiv.org/abs/2303.08774` — arXiv
+- `https://nature.com/articles/s41586-...` — Nature (DOI constructed from URL)
 - Any URL containing a DOI pattern
 
 **What it does:**
 1. Finds hyperlinks pointing to academic URLs (skips already-processed citations)
-2. Resolves each URL to metadata via CrossRef/PubMed/arXiv APIs
+2. Resolves each URL to metadata — extracts known identifiers from the URL, scrapes HTML meta tags for DOIs, or falls back to Semantic Scholar title search
 3. Adds new references to the library and Zotero collection
 4. Replaces each hyperlink with a formatted citation marker (e.g., `[1]`)
 5. Adds named ranges and citation hyperlinks for durability
@@ -72,7 +74,8 @@ Add a reference to the library by DOI, URL, PMID, arXiv ID, or title.
 cite add "10.1038/s41586-020-2649-2"       # DOI
 cite add "pmid:29083404"                     # PubMed ID
 cite add "arxiv:2303.08774"                  # arXiv ID
-cite add "https://example.com/paper"         # URL
+cite add "https://pubmed.ncbi.nlm.nih.gov/29083404"  # URL (identifier extracted)
+cite add "https://example.com/paper"         # URL (meta tags scraped, then Semantic Scholar fallback)
 cite add "Attention is all you need"         # Title search (Semantic Scholar)
 ```
 
