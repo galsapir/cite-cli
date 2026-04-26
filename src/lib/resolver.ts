@@ -83,10 +83,15 @@ export async function resolveDoi(doi: string): Promise<CslJson> {
     id: normalizedDoi,
     type: work.type || "article-journal",
     title: Array.isArray(work.title) ? work.title[0] : work.title,
-    author: work.author?.map((a: any) => ({
-      given: a.given,
-      family: a.family,
-    })),
+    // CrossRef emits organisational authors (consortia, working groups) as
+    // {name: "..."} with no given/family. CSL-JSON's canonical field for those
+    // is `literal`, so preserve it — otherwise generateCiteKey falls through
+    // to "unknown" and the bibliography entry drops the author entirely.
+    author: work.author?.map((a: any) =>
+      a.family || a.given
+        ? { given: a.given, family: a.family }
+        : { literal: a.name },
+    ),
     issued: work.issued || work["published-print"] || work["published-online"],
     "container-title": Array.isArray(work["container-title"])
       ? work["container-title"][0]
