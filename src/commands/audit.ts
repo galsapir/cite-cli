@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
-import { resolveDocId } from "../lib/config.js";
+import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
@@ -14,9 +14,12 @@ export function registerAuditCommand(program: Command): void {
     .command("audit")
     .description("Audit citations in a Google Doc")
     .option("--doc <docId>", "Google Doc ID")
+    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
-      opts.doc = await resolveDocId(opts.doc);
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      requireGoogleDocsSource(resolved, "audit");
+      opts.doc = resolved.stateKey;
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(

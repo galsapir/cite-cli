@@ -15,7 +15,7 @@ import {
 } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
-import { resolveDocId } from "../lib/config.js";
+import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry } from "../types/index.js";
@@ -25,10 +25,13 @@ export function registerRefreshCommand(program: Command): void {
     .command("refresh")
     .description("Repair citations: reconstruct named ranges from hyperlinks and renumber in document order")
     .option("--doc <docId>", "Google Doc ID")
+    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      opts.doc = await resolveDocId(opts.doc);
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      requireGoogleDocsSource(resolved, "refresh");
+      opts.doc = resolved.stateKey;
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(

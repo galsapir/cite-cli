@@ -6,30 +6,29 @@ import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
-import { GoogleDocsSource } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveDocId } from "../lib/config.js";
-import type { DocumentSource } from "../lib/document-source.js";
+import { resolveSource } from "../lib/resolve-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
     .command("bib")
     .description("Generate or update the bibliography section in a document")
     .option("--doc <docId>", "Google Doc ID")
+    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
     .option("--style <style>", "Citation style override")
-    .option("--after <text>", "Insert bibliography after this text (first time only)")
+    .option("--after <text>", "Insert bibliography after this text (first time only; Google Docs only)")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      opts.doc = await resolveDocId(opts.doc);
-      const docState = await loadDocState(opts.doc);
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      const { source, stateKey } = resolved;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
-        console.error(
-          chalk.red(
-            `Doc ${opts.doc} not initialized. Run 'cite init --doc ${opts.doc}' first.`,
-          ),
-        );
+        const initHint = source.kind === "markdown"
+          ? `cite init --markdown ${opts.markdown ?? resolved.options.markdown}`
+          : `cite init --doc ${stateKey}`;
+        console.error(chalk.red(`Document not initialized. Run '${initHint}' first.`));
         process.exit(1);
       }
 
@@ -78,7 +77,6 @@ export function registerBibCommand(program: Command): void {
         }
       }
 
-      const source: DocumentSource = new GoogleDocsSource(opts.doc);
       console.log(`Fetching ${source.describe()}...`);
       const present = await source.findPresentCitationKeys();
 
@@ -91,14 +89,17 @@ export function registerBibCommand(program: Command): void {
       }
 
       // Cross-check: every key tracked in state should be present in the doc.
-      const stateKeys = new Set(docState.citations.map((c) => c.key));
-      const missing = [...stateKeys].filter((k) => !present.keys.has(k));
+      const stateCitationKeys = new Set(docState.citations.map((c) => c.key));
+      const missing = [...stateCitationKeys].filter((k) => !present.keys.has(k));
       if (missing.length > 0) {
+        const refreshHint = source.kind === "markdown"
+          ? `cite refresh --markdown ${opts.markdown ?? resolved.options.markdown}`
+          : `cite refresh --doc ${stateKey}`;
         console.log(
           chalk.yellow(
             `Warning: ${missing.length} citation(s) tracked in state but missing from document body: ` +
             missing.join(", ") +
-            `\nRun 'cite refresh --doc ${opts.doc}' to repair.`,
+            `\nRun '${refreshHint}' to repair.`,
           ),
         );
       }
@@ -114,7 +115,7 @@ export function registerBibCommand(program: Command): void {
       await saveDocState(docState);
 
       await logOperation(
-        opts.doc,
+        stateKey,
         `BIB_UPDATE ${style} (${sortedCitations.length} entries)`,
       );
 

@@ -10,7 +10,8 @@ import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js
 import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { loadConfig, resolveDocId } from "../lib/config.js";
+import { loadConfig } from "../lib/config.js";
+import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson } from "../types/index.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
@@ -20,6 +21,7 @@ export function registerInsertCommand(program: Command): void {
     .command("insert")
     .description("Insert an inline citation into a Google Doc")
     .option("--doc <docId>", "Google Doc ID")
+    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
     .option("--key <key>", "Citation key from library")
     .option("--keys <keys>", "Comma-separated citation keys")
     .option("--after <text>", "Insert after this search string (first occurrence)")
@@ -29,7 +31,9 @@ export function registerInsertCommand(program: Command): void {
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      opts.doc = await resolveDocId(opts.doc);
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      requireGoogleDocsSource(resolved, "insert");
+      opts.doc = resolved.stateKey;
       const docState = await loadDocState(opts.doc);
       if (!docState) {
         console.error(

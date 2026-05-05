@@ -1,10 +1,11 @@
 // ABOUTME: CLI command to set the active document and collection for a working session.
-// ABOUTME: Stores defaults in config so subsequent commands don't need --doc/--collection flags.
+// ABOUTME: Stores defaults in config so subsequent commands don't need --doc/--markdown/--collection flags.
 
 import { Command } from "commander";
 import chalk from "chalk";
+import { resolve as resolvePath } from "node:path";
 import { loadConfig, updateConfig } from "../lib/config.js";
-import { loadDocState } from "../lib/doc-state.js";
+import { loadDocState, stateKeyForSource } from "../lib/doc-state.js";
 import { fetchDoc } from "../lib/google-docs.js";
 
 export function registerUseCommand(program: Command): void {
@@ -12,9 +13,15 @@ export function registerUseCommand(program: Command): void {
     .command("use")
     .description("Set (or show) the active document and collection")
     .option("--doc <docId>", "Google Doc ID to work with")
+    .option("--markdown <path>", "Markdown file to work with")
     .option("--collection <name>", "Default Zotero collection for new references")
-    .option("--clear", "Clear the active doc and collection")
+    .option("--clear", "Clear the active doc, markdown file, and collection")
     .action(async (opts) => {
+      if (opts.doc && opts.markdown) {
+        console.error(chalk.red("Pass either --doc or --markdown, not both."));
+        process.exit(1);
+      }
+
       const config = await loadConfig();
 
       // Clear mode
@@ -23,19 +30,19 @@ export function registerUseCommand(program: Command): void {
           defaults: {
             ...config.defaults,
             doc: undefined,
+            markdown: undefined,
             collection: undefined,
           },
         });
-        console.log(chalk.green("✓ Cleared active document and collection."));
+        console.log(chalk.green("✓ Cleared active document, markdown file, and collection."));
         return;
       }
 
       // Set mode — at least one option provided
-      if (opts.doc || opts.collection) {
+      if (opts.doc || opts.markdown || opts.collection) {
         const updates: Record<string, any> = { ...config.defaults };
 
         if (opts.doc) {
-          // Validate the doc is initialized
           const docState = await loadDocState(opts.doc);
           if (!docState) {
             console.error(
@@ -46,6 +53,23 @@ export function registerUseCommand(program: Command): void {
             process.exit(1);
           }
           updates.doc = opts.doc;
+          updates.markdown = undefined;
+        }
+
+        if (opts.markdown) {
+          const abs = resolvePath(opts.markdown);
+          const stateKey = stateKeyForSource({ type: "markdown", filePath: abs });
+          const docState = await loadDocState(stateKey);
+          if (!docState) {
+            console.error(
+              chalk.red(
+                `Markdown file ${opts.markdown} not initialized. Run 'cite init --markdown ${opts.markdown}' first.`,
+              ),
+            );
+            process.exit(1);
+          }
+          updates.markdown = abs;
+          updates.doc = undefined;
         }
 
         if (opts.collection) {
@@ -54,20 +78,21 @@ export function registerUseCommand(program: Command): void {
 
         await updateConfig({ defaults: updates });
 
-        // Show what was set
         if (opts.doc) console.log(chalk.green(`✓ Active document: ${opts.doc}`));
+        if (opts.markdown) console.log(chalk.green(`✓ Active markdown file: ${opts.markdown}`));
         if (opts.collection) console.log(chalk.green(`✓ Active collection: ${opts.collection}`));
         return;
       }
 
       // Show mode — no options, display current state
       const docId = config.defaults?.doc;
+      const markdown = config.defaults?.markdown;
       const collection = config.defaults?.collection;
       const style = config.defaults?.style;
 
-      if (!docId && !collection) {
+      if (!docId && !markdown && !collection) {
         console.log(chalk.dim("No active document or collection set."));
-        console.log(chalk.dim("Use: cite use --doc <DOC_ID> --collection <name>"));
+        console.log(chalk.dim("Use: cite use --doc <DOC_ID>  OR  cite use --markdown <PATH>"));
         return;
       }
 
@@ -79,9 +104,19 @@ export function registerUseCommand(program: Command): void {
         } catch {
           // Can't fetch title — just show ID
         }
-
         const docState = await loadDocState(docId);
         console.log(`Document:   ${chalk.cyan(title)}`);
+        if (docState) {
+          console.log(`Library:    ${docState.libraryId}`);
+          console.log(`Style:      ${docState.style}`);
+          console.log(`Citations:  ${docState.citations.length}`);
+        }
+      }
+
+      if (markdown) {
+        const stateKey = stateKeyForSource({ type: "markdown", filePath: markdown });
+        const docState = await loadDocState(stateKey);
+        console.log(`Markdown:   ${chalk.cyan(markdown)}`);
         if (docState) {
           console.log(`Library:    ${docState.libraryId}`);
           console.log(`Style:      ${docState.style}`);
@@ -93,7 +128,7 @@ export function registerUseCommand(program: Command): void {
         console.log(`Collection: ${chalk.cyan(collection)}`);
       }
 
-      if (style && !config.defaults?.doc) {
+      if (style && !docId && !markdown) {
         console.log(`Style:      ${style}`);
       }
     });

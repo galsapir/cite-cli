@@ -6,14 +6,13 @@ import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary, addToLibrary } from "../lib/library.js";
-import { GoogleDocsSource } from "../lib/google-docs.js";
 import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveDocId } from "../lib/config.js";
+import { resolveSource } from "../lib/resolve-source.js";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
-import type { DocumentSource, PendingReference, ScanWriteItem } from "../lib/document-source.js";
+import type { PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
 interface ResolvedRef {
   ref: PendingReference;
@@ -28,22 +27,22 @@ export function registerScanCommand(program: Command): void {
     .command("scan")
     .description("Scan document for pasted reference URLs and convert to citations")
     .option("--doc <docId>", "Google Doc ID")
+    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
     .option("--collection <name>", "Zotero collection to add new references to")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      opts.doc = await resolveDocId(opts.doc);
-      const docState = await loadDocState(opts.doc);
+      const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      const { source, stateKey } = resolvedSrc;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
-        console.error(
-          chalk.red(
-            `Doc ${opts.doc} not initialized. Run 'cite init --doc ${opts.doc}' first.`,
-          ),
-        );
+        const initHint = source.kind === "markdown"
+          ? `cite init --markdown ${opts.markdown ?? resolvedSrc.options.markdown}`
+          : `cite init --doc ${stateKey}`;
+        console.error(chalk.red(`Document not initialized. Run '${initHint}' first.`));
         process.exit(1);
       }
 
-      const source: DocumentSource = new GoogleDocsSource(opts.doc);
       console.log(`Fetching ${source.describe()}...`);
       const loaded = await source.loadAcademicReferences();
       console.log(`  rev: ${loaded.revisionToken.slice(0, 8)}...`);
@@ -209,7 +208,7 @@ export function registerScanCommand(program: Command): void {
 
       for (const nc of newCitations) {
         await logOperation(
-          opts.doc,
+          stateKey,
           `SCAN_INSERT [${nc.index}] (key: ${nc.key}, source: ${nc.location})`,
         );
       }

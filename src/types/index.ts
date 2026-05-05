@@ -84,6 +84,8 @@ export interface CiteConfig {
   };
   defaults?: {
     doc?: string;
+    /** Active markdown file (when not using a Google Doc). Mutually exclusive with `doc` in practice. */
+    markdown?: string;
     collection?: string;
     style?: string;
     confirmBeforeWrite?: boolean;
