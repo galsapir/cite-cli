@@ -22,8 +22,8 @@ interface MarkdownCursor {
   end: number;
 }
 
-const PANDOC_CITE_RE = /\[@([A-Za-z][A-Za-z0-9_:.-]*)(?:[;\s]+@[A-Za-z][A-Za-z0-9_:.-]*)*\]/g;
-const PANDOC_KEY_RE = /@([A-Za-z][A-Za-z0-9_:.-]*)/g;
+const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
+const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 
 /** Thrown when the file changed on disk between load and write. */
 export class MarkdownChangedDuringRunError extends Error {

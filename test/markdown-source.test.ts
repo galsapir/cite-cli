@@ -71,6 +71,30 @@ describe("MarkdownDocumentSource", () => {
     expect([...out.keys].sort()).toEqual(["four", "one", "three", "two"]);
   });
 
+  it("extracts keys from prefix text before cites", async () => {
+    const src = await withFile("See [see @smith] and [cf. @smith; @doe].\n");
+    const out = await src.findPresentCitationKeys();
+    expect([...out.keys].sort()).toEqual(["doe", "smith"]);
+  });
+
+  it("extracts keys from suffix locator after cite", async () => {
+    const src = await withFile("See [@smith-2020, p. 12] and [@doe:2021, pp. 33-34].\n");
+    const out = await src.findPresentCitationKeys();
+    expect([...out.keys].sort()).toEqual(["doe:2021", "smith-2020"]);
+  });
+
+  it("extracts keys from author-suppressed cites", async () => {
+    const src = await withFile("See [-@smith_2020].\n");
+    const out = await src.findPresentCitationKeys();
+    expect([...out.keys].sort()).toEqual(["smith_2020"]);
+  });
+
+  it("extracts keys from mixed pandoc citations", async () => {
+    const src = await withFile("See [see -@smith.2020, p. 12; @doe_2021].\n");
+    const out = await src.findPresentCitationKeys();
+    expect([...out.keys].sort()).toEqual(["doe_2021", "smith.2020"]);
+  });
+
   it("appends a new bibliography section when none exists", async () => {
     const src = await withFile("# Paper\n\nBody.\n");
     const result = await src.writeBibliography(
