@@ -1,24 +1,24 @@
-// ABOUTME: CLI command to audit citations in a Google Doc.
+// ABOUTME: CLI command to audit citations in a document source.
 // ABOUTME: Reports missing keys, numbering gaps, and orphaned entries.
 
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
-import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
+import { resolveSource } from "../lib/resolve-source.js";
 import { loadLibrary } from "../lib/library.js";
-import { fetchDoc, extractText } from "../lib/google-docs.js";
+import { fetchDoc } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
 
 export function registerAuditCommand(program: Command): void {
   program
     .command("audit")
-    .description("Audit citations in a Google Doc")
+    .description("Audit citations in a document")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
+    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      requireGoogleDocsSource(resolved, "audit");
+      const source = resolved.source;
       opts.doc = resolved.stateKey;
       const docState = await loadDocState(opts.doc);
       if (!docState) {
@@ -52,28 +52,29 @@ export function registerAuditCommand(program: Command): void {
       // Check for numbering gaps
       const indices = docState.citations.map((c) => c.index).sort((a, b) => a - b);
       const gaps: number[] = [];
-      for (let i = 1; i < indices.length; i++) {
-        if (indices[i] !== indices[i - 1] + 1) {
-          for (let g = indices[i - 1] + 1; g < indices[i]; g++) {
-            gaps.push(g);
+      if (source.kind === "google-docs") {
+        for (let i = 1; i < indices.length; i++) {
+          if (indices[i] !== indices[i - 1] + 1) {
+            for (let g = indices[i - 1] + 1; g < indices[i]; g++) {
+              gaps.push(g);
+            }
           }
         }
       }
 
       // If online, also scan the document for citation markers
-      let docCitations: number[] = [];
+      let presentCitationKeys: Set<string> | null = null;
       let docTitle = "(offline mode)";
       if (!opts.offline) {
         try {
-          const doc = await fetchDoc(opts.doc);
-          docTitle = doc.title;
-          const text = extractText(doc.body);
-
-          // Find all [N] patterns in the document
-          const markerRegex = /\[(\d+)\]/g;
-          let match;
-          while ((match = markerRegex.exec(text)) !== null) {
-            docCitations.push(parseInt(match[1]));
+          if (source.kind === "google-docs") {
+            const doc = await fetchDoc(opts.doc);
+            docTitle = doc.title;
+          }
+          const present = await source.findPresentCitationKeys();
+          presentCitationKeys = present.keys;
+          if (source.kind === "markdown") {
+            docTitle = source.describe();
           }
         } catch {
           console.log(
@@ -106,10 +107,12 @@ export function registerAuditCommand(program: Command): void {
         }
       }
 
-      if (gaps.length > 0) {
-        console.log(`Numbering gaps: ${chalk.yellow(gaps.join(", "))}`);
-      } else {
-        console.log(`Numbering gaps: ${chalk.green("none")}`);
+      if (source.kind === "google-docs") {
+        if (gaps.length > 0) {
+          console.log(`Numbering gaps: ${chalk.yellow(gaps.join(", "))}`);
+        } else {
+          console.log(`Numbering gaps: ${chalk.green("none")}`);
+        }
       }
 
       if (orphaned.length > 0) {
@@ -123,15 +126,25 @@ export function registerAuditCommand(program: Command): void {
         }
       }
 
-      if (docCitations.length > 0) {
-        // Check for markers in doc that aren't tracked
-        const trackedIndices = new Set(docState.citations.map((c) => c.index));
-        const untrackedInDoc = [...new Set(docCitations)].filter(
-          (n) => !trackedIndices.has(n),
+      if (presentCitationKeys) {
+        const trackedKeys = new Set(docState.citations.map((c) => c.key));
+        const untrackedInDoc = [...presentCitationKeys].filter(
+          (key) => !trackedKeys.has(key),
+        );
+        const missingFromDoc = [...trackedKeys].filter(
+          (key) => !presentCitationKeys.has(key),
         );
         if (untrackedInDoc.length > 0) {
+          const formatted = untrackedInDoc.map((key) =>
+            source.kind === "markdown" ? `@${key}` : key,
+          );
           console.log(
-            `\n${chalk.yellow("Untracked markers in doc:")} ${untrackedInDoc.map((n) => `[${n}]`).join(", ")}`,
+            `\n${chalk.yellow("Untracked markers in doc:")} ${formatted.join(", ")}`,
+          );
+        }
+        if (missingFromDoc.length > 0) {
+          console.log(
+            `\n${chalk.yellow("Citations missing from doc body:")} ${missingFromDoc.join(", ")}`,
           );
         }
       }
