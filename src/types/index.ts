@@ -31,14 +31,31 @@ export interface LibraryEntry {
   zoteroKey?: string; // Zotero item key for sync
 }
 
+/** Discriminated union identifying the document a state record points to. */
+export type DocSource =
+  | { type: "google-docs"; docId: string }
+  | { type: "markdown"; filePath: string };
+
 /** Per-doc citation state */
 export interface DocState {
+  /** Stable filename key for this state record (e.g. Google Doc ID, or `md_<sha1>`). */
   docId: string;
+  /** Where the document lives — Google Docs or a local markdown file. */
+  source: DocSource;
   libraryId: string;
   style: CitationStyle;
   citations: CitationEntry[];
+  /**
+   * For Google Docs: the named-range name that wraps the bibliography section.
+   * For markdown: the level-2 heading text under which the bibliography lives
+   *   (default "References" when first generated).
+   */
   bibNamedRange?: string;
   lastSync: string;
+  /**
+   * For Google Docs: Google's revisionId.
+   * For markdown: an opaque token derived from mtime + content hash.
+   */
   revisionId?: string;
 }
 
