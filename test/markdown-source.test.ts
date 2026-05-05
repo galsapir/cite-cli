@@ -95,6 +95,15 @@ describe("MarkdownDocumentSource", () => {
     expect([...out.keys].sort()).toEqual(["doe_2021", "smith.2020"]);
   });
 
+  it("does not treat markdown link text as a pandoc citation", async () => {
+    const src = await withFile(
+      "See [@torvalds](https://github.com/torvalds) and [@user's profile](https://example.com/u).\n" +
+      "But [@battelino2019] is a real cite.\n",
+    );
+    const out = await src.findPresentCitationKeys();
+    expect([...out.keys]).toEqual(["battelino2019"]);
+  });
+
   it("appends a new bibliography section when none exists", async () => {
     const src = await withFile("# Paper\n\nBody.\n");
     const result = await src.writeBibliography(

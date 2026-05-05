@@ -133,6 +133,9 @@ export class MarkdownDocumentSource implements DocumentSource {
     const text = await this.readContent();
     const keys = new Set<string>();
     for (const m of text.matchAll(PANDOC_CITE_RE)) {
+      // `[text](url)` is a markdown link, not a pandoc citation — skip.
+      const after = text[(m.index ?? 0) + m[0].length];
+      if (after === "(") continue;
       for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
         keys.add(km[1]);
       }
