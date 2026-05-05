@@ -4,6 +4,7 @@
 import { google, type docs_v1 } from "googleapis";
 import { createHash } from "node:crypto";
 import { getGoogleAuth } from "./google-auth.js";
+import { CITE_LINK_PREFIX } from "../types/index.js";
 
 /** A single image extracted from the doc, ready to be written to disk. */
 export interface ExtractedImage {
@@ -260,6 +261,16 @@ function renderTextRun(run: docs_v1.Schema$TextRun): string {
 
   // Escape markdown-meaningful characters that aren't already structural.
   text = escapeMarkdownInline(text);
+
+  // cite-cli citation links round-trip back to pandoc-style markers so a
+  // freshly exported markdown is immediately operable by `cite scan/bib`.
+  if (style.link?.url?.startsWith(CITE_LINK_PREFIX)) {
+    const keys = style.link.url.slice(CITE_LINK_PREFIX.length).split(",").filter(Boolean);
+    if (keys.length > 0) {
+      const marker = `[${keys.map((k) => `@${k}`).join("; ")}]`;
+      return marker + trailingWhitespace(raw);
+    }
+  }
 
   if (style.link?.url) {
     return `[${text.trim()}](${style.link.url})${trailingWhitespace(raw)}`;

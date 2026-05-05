@@ -224,6 +224,19 @@ describe("convertDocumentTab", () => {
     expect(out.markdown).toContain("![Figure 1: Architecture](./figures/doc1_figure_1_architecture.png)");
   });
 
+  it("converts cite-cli citation hyperlinks back to pandoc [@key] markers", async () => {
+    const tab = makeTab([
+      para("See [1]", { link: "https://cite-cli.local/ref/merrill2026" }),
+      para("Also [2,3]", { link: "https://cite-cli.local/ref/heydari2025,khasentino2025" }),
+    ]);
+    const out = await convertDocumentTab(tab, ctx);
+    expect(out.markdown).toContain("[@merrill2026]");
+    expect(out.markdown).toContain("[@heydari2025; @khasentino2025]");
+    // The literal `[1]` / `[2,3]` text must not leak through as a markdown link.
+    expect(out.markdown).not.toContain("[[1]]");
+    expect(out.markdown).not.toContain("cite-cli.local");
+  });
+
   it("collects warnings for inline objects without contentUri", async () => {
     const tab: docs_v1.Schema$DocumentTab = {
       body: {
