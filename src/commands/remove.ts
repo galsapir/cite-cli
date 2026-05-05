@@ -19,7 +19,7 @@ export function registerRemoveCommand(program: Command): void {
     .command("remove")
     .description("Remove a citation from a Google Doc and renumber remaining citations")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
+    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
     .requiredOption("--key <key>", "Citation key to remove")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")

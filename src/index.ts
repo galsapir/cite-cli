@@ -24,7 +24,7 @@ const program = new Command();
 
 program
   .name("cite")
-  .description("CLI Citation Manager for Google Docs")
+  .description("CLI citation manager for Google Docs and local markdown files")
   .version("0.1.0");
 
 // Register all commands

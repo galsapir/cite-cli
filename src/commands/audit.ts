@@ -14,7 +14,7 @@ export function registerAuditCommand(program: Command): void {
     .command("audit")
     .description("Audit citations in a Google Doc")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
+    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });

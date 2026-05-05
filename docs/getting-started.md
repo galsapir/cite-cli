@@ -81,6 +81,8 @@ This opens a browser window for Google authorization. Sign in, approve access, a
 
 ## 4. Your First Citation Workflow
 
+`cite` works against either a Google Doc or a local markdown file. Pick whichever fits your writing setup; the rest of this guide shows the Google Docs walkthrough first, then a shorter markdown alternative.
+
 ### Add some papers
 
 ```bash
@@ -97,7 +99,9 @@ cite add "10.1056/NEJMra2301725"
 cite search
 ```
 
-### Initialize a Google Doc
+### Path A — Google Docs
+
+#### Initialize a Google Doc
 
 Get the doc ID from the URL — it's the long string between `/d/` and `/edit`:
 
@@ -109,7 +113,7 @@ https://docs.google.com/document/d/THIS_IS_THE_DOC_ID/edit
 cite init --doc <DOC_ID>
 ```
 
-### Insert citations
+#### Insert citations
 
 ```bash
 # Insert after specific text in the document
@@ -119,18 +123,40 @@ cite insert --doc <DOC_ID> --key harris2020 --after "some sentence in your doc"
 cite insert --doc <DOC_ID> --key rajpurkar2023 --after "another sentence" --dry-run
 ```
 
-### Generate bibliography
+#### Generate bibliography
 
 ```bash
 # Place bibliography after "References" heading
 cite bib --doc <DOC_ID> --after "References"
 ```
 
-### Audit for consistency
+#### Audit for consistency
 
 ```bash
 cite audit --doc <DOC_ID>
 ```
+
+### Path B — local markdown
+
+Write in any editor (Obsidian, VS Code, vim, …). Paste DOI/PubMed/PMC/arXiv/Nature URLs as standard markdown links — `[Author](https://doi.org/...)` — while drafting, then run `cite scan` to convert them to pandoc-style `[@bibkey]` markers.
+
+```bash
+# Initialize the markdown file as a cite-tracked source
+cite init --markdown docs/draft.md --library group/12345 --style vancouver
+
+# (optional) make it the active source so subsequent commands don't need --markdown
+cite use --markdown docs/draft.md
+
+# Convert pasted academic links to [@bibkey] markers
+cite scan
+
+# Generate / update the bibliography under a `## References` heading
+cite bib
+```
+
+`insert`, `audit`, `refresh`, and `remove` are not yet markdown-aware (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)). For a markdown-only workflow, `scan` and `bib` are typically all you need.
+
+To migrate an existing cite-cli'd Google Doc into the markdown workflow, use `cite export` — see [Usage Guide → export](usage.md#export).
 
 ## 5. Importing Existing References
 

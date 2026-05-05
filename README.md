@@ -6,7 +6,14 @@ A terminal-based citation manager for Google Docs and local markdown files.
 
 ## Workflow
 
-The typical workflow: write in Google Docs, paste reference URLs inline, then run `cite scan` to formalize everything.
+`cite` supports two writing surfaces:
+
+- **Google Docs** — collaborative drafting, comment threads, suggestion mode. Citations are tracked with named ranges + hyperlinks.
+- **Local markdown files** — write in Obsidian, VS Code, vim, or any editor; same `scan`/`bib` workflow. Citations land as pandoc-style `[@bibkey]` markers; the bibliography lands under `## References`.
+
+Pick the surface that fits the moment and `cite` adapts. `cite export` migrates an existing Google Doc into the markdown workflow.
+
+The typical workflow: write, paste reference URLs inline, then run `cite scan` to formalize everything.
 
 ```bash
 # 1. Set up your working session
@@ -97,11 +104,13 @@ See [docs/usage.md](docs/usage.md) for full command reference.
 ## Features
 
 - **Scan & cite** — paste DOI/PubMed/PMC/arXiv/Nature URLs in your doc, run `cite scan` to convert them all to formatted citations
-- **Named ranges + hyperlinks** — citations survive document reorganization and copy/paste
+- **Two backends, one workflow** — operate on Google Docs (`--doc`) or local markdown files (`--markdown`); same commands, same library
+- **Durable citation markers** — Google Docs uses named ranges + hyperlinks; markdown uses pandoc `[@bibkey]` keys. Both survive document reorganization and copy/paste
+- **Safe markdown writes** — atomic temp-file + rename, plus a revision-precondition check that aborts (rather than overwriting) if the file changed on disk between read and write
 - **Zotero collections** — organize references into collections per paper
 - **Multiple citation styles** — Vancouver (default), APA, Nature, IEEE, Chicago
 - **Import** — BibTeX, RIS, or SciWheel
-- **Audit & refresh** — detect inconsistencies and repair citations after edits
+- **Audit & refresh** — detect inconsistencies and repair citations after edits (Google Docs; markdown tracked in [#19](https://github.com/galsapir/cite-cli/issues/19))
 
 ## Documentation
 
@@ -123,7 +132,10 @@ cite stores data in `~/.cite/`:
 └── logs/                    # Operation logs
 ```
 
-Each Google Doc is bound to a library and citation style via `cite init`. Inline citations are tracked using Google Docs named ranges and hyperlinks for durability. The bibliography is managed through a named range for reliable in-place updates.
+Each document — Google Doc or markdown file — is bound to a library and citation style via `cite init`.
+
+- **Google Docs**: state is keyed by the document ID. Inline citations are tracked using named ranges and hyperlinks; the bibliography lives in a named range for reliable in-place updates.
+- **Markdown**: state is keyed by `md_<sha1(absolute path)>`, so two working directories that point at the same file resolve to the same state record. Inline citations are pandoc `[@bibkey]` markers; the bibliography lives under a `## References` heading. Writes go through a temp-file + rename and abort if the file changed on disk since `cite` started reading it.
 
 ## License
 

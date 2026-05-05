@@ -25,7 +25,7 @@ export function registerRefreshCommand(program: Command): void {
     .command("refresh")
     .description("Repair citations: reconstruct named ranges from hyperlinks and renumber in document order")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
+    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {

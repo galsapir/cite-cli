@@ -2,38 +2,52 @@
 
 Full command reference for `cite`. Run `cite <command> --help` for option details.
 
-> **Tip:** Set an active document with `cite use --doc <ID>` and all commands below will use it by default — no need to pass `--doc` every time.
+> **Tip:** Set an active source with `cite use --doc <ID>` (or `cite use --markdown <PATH>`) and the document-aware commands below will use it by default — no need to pass `--doc`/`--markdown` every time.
+
+## Backends
+
+`cite` operates on two kinds of documents. Most commands accept either:
+
+- **`--doc <DOC_ID>`** — a Google Doc. Inline citations are tracked with named ranges + hyperlinks; the bibliography lives in a named range.
+- **`--markdown <PATH>`** — a local markdown file. Inline citations are pandoc-style `[@bibkey]` markers; the bibliography lives under a `## References` heading.
+
+`scan`, `bib`, `init`, `use` support both. `insert`, `audit`, `refresh`, `remove` are Google-Docs-only today (markdown support tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)). `--doc` and `--markdown` are mutually exclusive on every command.
 
 ## use
 
-Set or show the active document and collection for your working session.
+Set or show the active source (Google Doc or markdown file) and collection for your working session.
 
 ```bash
-cite use --doc <DOC_ID> --collection my-paper   # set active context
-cite use                                         # show current context
-cite use --clear                                 # clear active context
+cite use --doc <DOC_ID> --collection my-paper        # set active Google Doc
+cite use --markdown docs/draft.md                    # set active markdown file
+cite use                                             # show current context
+cite use --clear                                     # clear active source + collection
 ```
+
+Setting one of `--doc`/`--markdown` clears the other — only one source can be active at a time.
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
 | `--doc <id>` | Google Doc ID to work with |
+| `--markdown <path>` | Markdown file path to work with |
 | `--collection <name>` | Default Zotero collection for new references |
-| `--clear` | Clear the active doc and collection |
+| `--clear` | Clear the active source and collection |
 
 ## scan
 
-Scan a Google Doc for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks while writing, then run `cite scan` to process them all.
+Scan a Google Doc or markdown file for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks (or as `[text](url)` markdown links) while writing, then run `cite scan` to process them all.
 
 ```bash
-cite scan                          # scan active doc
-cite scan --doc <DOC_ID>           # explicit doc
-cite scan --dry-run                # preview without writing
-cite scan --collection my-paper    # add new refs to a collection
+cite scan                                # scan active source
+cite scan --doc <DOC_ID>                 # explicit Google Doc
+cite scan --markdown docs/draft.md       # explicit markdown file
+cite scan --dry-run                      # preview without writing
+cite scan --collection my-paper          # add new refs to a collection
 ```
 
-**Detected URL patterns:**
+**Detected URL patterns (both backends):**
 - `https://doi.org/10.xxx` — DOI
 - `https://pubmed.ncbi.nlm.nih.gov/12345` — PubMed
 - `https://pmc.ncbi.nlm.nih.gov/articles/PMC12345` — PMC (resolved via PMCID→PMID conversion)
@@ -42,17 +56,20 @@ cite scan --collection my-paper    # add new refs to a collection
 - Any URL containing a DOI pattern
 
 **What it does:**
-1. Finds hyperlinks pointing to academic URLs (skips already-processed citations)
-2. Resolves each URL to metadata — extracts known identifiers from the URL, scrapes HTML meta tags for DOIs, or falls back to Semantic Scholar title search
+1. Finds hyperlinks pointing to academic URLs — Google Docs hyperlinks or markdown `[text](url)` links — skipping already-processed citations
+2. Resolves each URL to metadata: extracts known identifiers from the URL, scrapes HTML meta tags for DOIs, or falls back to Semantic Scholar title search
 3. Adds new references to the library and Zotero collection
-4. Replaces each hyperlink with a formatted citation marker (e.g., `[1]`)
-5. Adds named ranges and citation hyperlinks for durability
+4. Replaces each link with a citation marker:
+   - **Google Docs**: numeric `[N]` plus a named range and citation hyperlink for durability
+   - **Markdown**: pandoc-style `[@bibkey]` (the key is durable across renumbering)
+5. **Markdown only**: writes are atomic (temp + rename) and abort with a clear error if the file changed on disk between load and write — you'll never silently lose edits made in another editor mid-scan
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--doc <id>` | Google Doc ID (uses active source if not specified) |
+| `--markdown <path>` | Markdown file path |
 | `--collection <name>` | Zotero collection for new references |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
@@ -113,25 +130,30 @@ cite search --tag review       # Filter by tag
 
 ## init
 
-Initialize a Google Doc for citation management.
+Initialize a document — Google Doc or local markdown file — for citation management.
 
 ```bash
 cite init --doc <DOC_ID>
 cite init --doc <DOC_ID> --style apa
-cite init --doc <DOC_ID> --library group/12345
+cite init --markdown docs/draft.md --library group/12345 --style vancouver
 ```
+
+State is written to `~/.cite/docs/<key>.json`, where `<key>` is the Google Doc ID for `--doc` or `md_<sha1(absolute path)>` for `--markdown` — meaning two cwds that point at the same markdown file resolve to the same state record.
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--doc <id>` | Google Doc ID |
+| `--markdown <path>` | Markdown file path |
 | `--library <id>` | Library ID (e.g. `group/12345`), defaults to config |
 | `--style <style>` | Citation style, defaults to `vancouver` |
 
+`--doc` and `--markdown` are mutually exclusive.
+
 ## insert
 
-Insert an inline citation into a Google Doc.
+Insert an inline citation into a Google Doc. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
 
 ```bash
 # Insert after specific text
@@ -163,32 +185,62 @@ cite insert --key harris2020 --after "text" --dry-run
 
 ## bib
 
-Generate or update the bibliography section in a Google Doc.
+Generate or update the bibliography section in a Google Doc or markdown file.
 
 ```bash
-# First time — specify where to place it
-cite bib --after "References"
+# Google Docs — first time, specify where to place it
+cite bib --doc <DOC_ID> --after "References"
 
-# Update existing bibliography
+# Update existing bibliography (either backend)
 cite bib
+
+# Markdown — bibliography lands under (or replaces) a `## References` heading
+cite bib --markdown docs/draft.md
 
 # Preview in a different style
 cite bib --style apa --dry-run
 ```
 
+In Google Docs, the bibliography is anchored by a named range and updated in-place on subsequent runs. In markdown, the bibliography lives under a level-2 `## References` heading; re-running `cite bib` rewrites that section in place without disturbing later sections (e.g. `## Appendix`). `--after` only applies on first-time placement in Google Docs.
+
 **Options:**
 
 | Flag | Description |
 |------|-------------|
-| `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--doc <id>` | Google Doc ID (uses active source if not specified) |
+| `--markdown <path>` | Markdown file path |
 | `--style <style>` | Override citation style |
-| `--after <text>` | Insert bibliography after this text (first-time only) |
+| `--after <text>` | Insert bibliography after this text (Google Docs, first-time only) |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
 
+## export
+
+Export a Google Doc tab to a local markdown file (read-only against the source doc). The export preserves headings, bold/italic, links, lists, GitHub-flavoured tables, and fenced code blocks; inline images are extracted to a separate directory; cite-cli citation hyperlinks (`https://cite-cli.local/ref/<key>`) round-trip back to pandoc-style `[@key]` markers so the exported file is immediately operable by `cite scan`/`cite bib`.
+
+```bash
+# Default: writes ./doc.md and ./figures/
+cite export --doc <DOC_ID>
+
+# Specify output paths and a non-default tab
+cite export --doc <DOC_ID> --tab 0 --out docs/draft.md --image-dir docs/figures
+```
+
+This is the bridge from a cite-cli'd Google Doc to the markdown workflow: export, then `cite init --markdown <out>` and continue working on the local file.
+
+**Options:**
+
+| Flag | Description |
+|------|-------------|
+| `--doc <id>` | Google Doc ID (required; or use active doc) |
+| `--tab <index>` | Tab index to export (0 = first tab, default) |
+| `--out <path>` | Output markdown file (default: `doc.md`) |
+| `--image-dir <dir>` | Directory for extracted images (default: `./figures`) |
+| `--format <fmt>` | Output format (only `md` supported) |
+
 ## audit
 
-Audit citations in a Google Doc for consistency.
+Audit citations in a Google Doc for consistency. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
 
 ```bash
 cite audit
@@ -210,7 +262,7 @@ Reports:
 
 ## refresh
 
-Repair citations after document reorganization (copy/paste, paragraph moves).
+Repair citations after document reorganization (copy/paste, paragraph moves). Google Docs only — markdown tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19).
 
 ```bash
 cite refresh --dry-run   # preview changes
@@ -297,7 +349,7 @@ Fetches entries from Zotero, merges by DOI and Zotero key, and preserves local-o
 
 ## remove
 
-Remove a citation from a Google Doc and renumber remaining citations.
+Remove a citation from a Google Doc and renumber remaining citations. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
 
 ```bash
 cite remove --key rajpurkar2023

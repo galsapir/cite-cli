@@ -21,7 +21,7 @@ export function registerInsertCommand(program: Command): void {
     .command("insert")
     .description("Insert an inline citation into a Google Doc")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — planned in a follow-up PR)")
+    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
     .option("--key <key>", "Citation key from library")
     .option("--keys <keys>", "Comma-separated citation keys")
     .option("--after <text>", "Insert after this search string (first occurrence)")
