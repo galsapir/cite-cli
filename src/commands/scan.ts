@@ -1,29 +1,26 @@
-// ABOUTME: CLI command to scan a Google Doc for pasted academic URLs and convert them to citations.
-// ABOUTME: Finds DOI/PubMed/arXiv hyperlinks, resolves them, replaces with formatted markers, and updates bib.
+// ABOUTME: CLI command to scan a document for pasted academic URLs and convert them to citations.
+// ABOUTME: Backend-agnostic: works against any DocumentSource (Google Docs, markdown, …).
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary, addToLibrary } from "../lib/library.js";
-import { fetchDoc, findAcademicHyperlinks, batchUpdate } from "../lib/google-docs.js";
-import type { AcademicHyperlink } from "../lib/google-docs.js";
+import { GoogleDocsSource } from "../lib/google-docs.js";
 import { resolve, canonicalIds } from "../lib/resolver.js";
-import { formatInlineCitation } from "../lib/formatter.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
-import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
+import { logOperation, checkRevisionId } from "../lib/safety.js";
 import { resolveDocId } from "../lib/config.js";
-import type { docs_v1 } from "googleapis";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
-import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
+import type { DocumentSource, PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
-interface ResolvedHyperlink {
-  hyperlink: AcademicHyperlink;
+interface ResolvedRef {
+  ref: PendingReference;
   key: string;
   csl: CslJson;
-  isNew: boolean; // true if newly added to library
-  index: number;  // citation index in the doc
+  isNew: boolean;
+  index: number;
 }
 
 export function registerScanCommand(program: Command): void {
@@ -46,12 +43,12 @@ export function registerScanCommand(program: Command): void {
         process.exit(1);
       }
 
-      // Fetch the document
-      console.log("Fetching document...");
-      const doc = await fetchDoc(opts.doc);
-      console.log(`  Document: "${doc.title}" (rev: ${doc.revisionId.slice(0, 8)}...)`);
+      const source: DocumentSource = new GoogleDocsSource(opts.doc);
+      console.log(`Fetching ${source.describe()}...`);
+      const loaded = await source.loadAcademicReferences();
+      console.log(`  rev: ${loaded.revisionToken.slice(0, 8)}...`);
 
-      if (docState.revisionId && !checkRevisionId(docState.revisionId, doc.revisionId)) {
+      if (docState.revisionId && !checkRevisionId(docState.revisionId, loaded.revisionToken)) {
         console.log(
           chalk.yellow(
             "Warning: Document has been modified since last cite operation. " +
@@ -60,45 +57,35 @@ export function registerScanCommand(program: Command): void {
         );
       }
 
-      // Find academic hyperlinks in the document
-      const hyperlinks = findAcademicHyperlinks(doc.body);
-
-      if (hyperlinks.length === 0) {
+      if (loaded.refs.length === 0) {
         console.log(chalk.dim("No unprocessed reference URLs found in document."));
         return;
       }
 
-      console.log(`\nFound ${hyperlinks.length} reference URL(s):\n`);
+      console.log(`\nFound ${loaded.refs.length} reference URL(s):\n`);
 
-      // Resolve each hyperlink
       const library = await loadLibrary(docState.libraryId);
       const existingKeys = library.map((e) => e.key);
-      const resolved: ResolvedHyperlink[] = [];
+      const resolved: ResolvedRef[] = [];
       const newEntries: LibraryEntry[] = [];
 
-      // Build identifier→key index for O(1) dedup lookups.
-      // Dedupes on DOI, PMID, arXiv id, and canonical URL so that non-DOI
-      // references (e.g. arXiv preprints) don't produce suffixed duplicates
-      // when the same URL appears multiple times in the doc.
+      // Build identifier→key index for O(1) dedup lookups across DOI / PMID / arXiv / canonical URL.
       const idToKey = new Map<string, string>();
       const indexEntry = (csl: CslJson, key: string) => {
         for (const id of canonicalIds(csl)) idToKey.set(id, key);
       };
       for (const e of library) indexEntry(e.csl, e.key);
 
-      // Track the next available citation index (avoids recalculating max each iteration)
       let nextIndex = docState.citations.length > 0
         ? Math.max(...docState.citations.map((c) => c.index)) + 1
         : 1;
 
-      // Map from key → already-assigned index in this batch
       const batchKeyToIndex = new Map<string, number>();
 
-      for (const hl of hyperlinks) {
+      for (const ref of loaded.refs) {
         try {
-          const result = await resolve(hl.url, [...existingKeys, ...newEntries.map((e) => e.key)]);
+          const result = await resolve(ref.url, [...existingKeys, ...newEntries.map((e) => e.key)]);
 
-          // Check if this reference already exists (by DOI, PMID, arXiv id, or URL)
           let existingKey: string | undefined;
           for (const id of canonicalIds(result.csl)) {
             const hit = idToKey.get(id);
@@ -107,7 +94,6 @@ export function registerScanCommand(program: Command): void {
 
           let key: string;
           let isNew: boolean;
-
           if (existingKey) {
             key = existingKey;
             isNew = false;
@@ -122,7 +108,6 @@ export function registerScanCommand(program: Command): void {
             indexEntry(result.csl, key);
           }
 
-          // Determine citation index
           const existingCitation = docState.citations.find((c) => c.key === key);
           let index: number;
           if (existingCitation) {
@@ -134,13 +119,13 @@ export function registerScanCommand(program: Command): void {
             batchKeyToIndex.set(key, index);
           }
 
-          resolved.push({ hyperlink: hl, key, csl: result.csl, isNew, index });
+          resolved.push({ ref, key, csl: result.csl, isNew, index });
 
           const status = isNew ? chalk.green("NEW") : chalk.dim("exists");
           console.log(`  ${status} [${index}] ${formatReference(result.csl, key)}`);
-          console.log(chalk.dim(`        "${hl.text}" → ${hl.url}`));
+          console.log(chalk.dim(`        "${ref.text}" → ${ref.url}`));
         } catch (err: any) {
-          console.log(`  ${chalk.red("✗")} Failed to resolve: ${hl.url}`);
+          console.log(`  ${chalk.red("✗")} Failed to resolve: ${ref.url}`);
           console.log(chalk.dim(`    ${err.message}`));
         }
       }
@@ -168,7 +153,7 @@ export function registerScanCommand(program: Command): void {
         }
       }
 
-      // Resolve collection for new entries
+      // Add new entries to library and (if applicable) Zotero
       let collectionKey: string | undefined;
       if (newEntries.length > 0) {
         const collectionName = await getCollectionName(docState.libraryId, opts.collection);
@@ -178,7 +163,6 @@ export function registerScanCommand(program: Command): void {
         }
       }
 
-      // Add new entries to library and Zotero
       for (const entry of newEntries) {
         const zoteroKey = await addToZotero(docState.libraryId, entry.csl, collectionKey);
         if (zoteroKey) entry.zoteroKey = zoteroKey;
@@ -189,110 +173,38 @@ export function registerScanCommand(program: Command): void {
         console.log(chalk.dim(`  → Added ${newEntries.length} reference(s) to library`));
       }
 
-      // Build batch update requests: replace each hyperlink with a citation marker.
-      // Sort by reverse position to prevent index shifting.
-      const sortedResolved = [...resolved].sort(
-        (a, b) => b.hyperlink.startIndex - a.hyperlink.startIndex,
-      );
-
-      const style = docState.style;
       const allLibraryEntries = [...library, ...newEntries];
-      const allRequests: docs_v1.Schema$Request[] = [];
+      const writeItems: ScanWriteItem[] = resolved.map((r) => ({
+        ref: r.ref,
+        key: r.key,
+        index: r.index,
+      }));
+
+      const outcome = await source.writeScanResults(writeItems, docState.style, allLibraryEntries);
+
+      // Update doc state — fold occurrence handles into existing or new citations.
       const newCitations: CitationEntry[] = [];
-
-      // Track which request indices correspond to createNamedRange
-      const namedRangeRequestInfo: Array<{ requestIndex: number; key: string }> = [];
-
-      for (const r of sortedResolved) {
-        const cslEntries = [allLibraryEntries.find((e) => e.key === r.key)?.csl].filter(Boolean) as CslJson[];
-        const marker = formatInlineCitation([r.index], style, cslEntries);
-
-        // Delete the old hyperlinked text
-        allRequests.push({
-          deleteContentRange: {
-            range: {
-              startIndex: r.hyperlink.startIndex,
-              endIndex: r.hyperlink.endIndex,
-            },
-          },
-        });
-
-        // Insert the citation marker at the same position
-        allRequests.push({
-          insertText: {
-            location: { index: r.hyperlink.startIndex },
-            text: marker,
-          },
-        });
-
-        // Add citation hyperlink
-        allRequests.push({
-          updateTextStyle: {
-            range: {
-              startIndex: r.hyperlink.startIndex,
-              endIndex: r.hyperlink.startIndex + marker.length,
-            },
-            textStyle: {
-              link: { url: `${CITE_LINK_PREFIX}${r.key}` },
-            },
-            fields: "link",
-          },
-        });
-
-        // Create named range
-        const namedRangeReqIndex = allRequests.length;
-        allRequests.push({
-          createNamedRange: {
-            name: `${CITE_RANGE_PREFIX}${r.key}`,
-            range: {
-              startIndex: r.hyperlink.startIndex,
-              endIndex: r.hyperlink.startIndex + marker.length,
-            },
-          },
-        });
-        namedRangeRequestInfo.push({ requestIndex: namedRangeReqIndex, key: r.key });
-
-        // Track new citations for doc state
-        if (!docState.citations.find((c) => c.key === r.key) &&
-            !newCitations.find((c) => c.key === r.key)) {
+      for (const r of resolved) {
+        const handles = outcome.occurrenceHandles[r.key] ?? [];
+        const existing = docState.citations.find((c) => c.key === r.key);
+        if (existing) {
+          if (handles.length > 0) {
+            if (!existing.namedRangeIds) existing.namedRangeIds = [];
+            existing.namedRangeIds.push(...handles);
+          }
+        } else if (!newCitations.find((c) => c.key === r.key)) {
           newCitations.push({
             index: r.index,
             key: r.key,
-            location: `scan:${r.hyperlink.url}`,
+            location: `scan:${r.ref.url}`,
+            namedRangeIds: handles.length > 0 ? [...handles] : undefined,
           });
         }
       }
 
-      // Pre-write safety validation
-      validateBatchRequests(allRequests, doc.body);
-
-      // Execute batch update
-      const replies = await batchUpdate(opts.doc, allRequests);
-
-      // Extract namedRangeIds from replies
-      for (const info of namedRangeRequestInfo) {
-        const reply = replies[info.requestIndex];
-        const rangeId = reply?.createNamedRange?.namedRangeId;
-        if (rangeId) {
-          // Find the citation entry (existing or new)
-          const existing = docState.citations.find((c) => c.key === info.key);
-          if (existing) {
-            if (!existing.namedRangeIds) existing.namedRangeIds = [];
-            existing.namedRangeIds.push(rangeId);
-          } else {
-            const nc = newCitations.find((c) => c.key === info.key);
-            if (nc) {
-              if (!nc.namedRangeIds) nc.namedRangeIds = [];
-              nc.namedRangeIds.push(rangeId);
-            }
-          }
-        }
-      }
-
-      // Update doc state
       docState.citations.push(...newCitations);
       docState.lastSync = new Date().toISOString();
-      docState.revisionId = doc.revisionId;
+      docState.revisionId = outcome.newRevisionToken;
       await saveDocState(docState);
 
       for (const nc of newCitations) {
@@ -310,7 +222,6 @@ export function registerScanCommand(program: Command): void {
         ),
       );
 
-      // Auto-update bibliography if it exists
       if (docState.bibNamedRange) {
         console.log(chalk.dim("  → Run 'cite bib' to update the bibliography."));
       }

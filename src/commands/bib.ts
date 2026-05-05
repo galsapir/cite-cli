@@ -1,21 +1,21 @@
-// ABOUTME: CLI command to generate or update the bibliography in a Google Doc.
-// ABOUTME: Supports multiple citation styles with named range tracking for updates.
+// ABOUTME: CLI command to generate or update the bibliography in a document.
+// ABOUTME: Backend-agnostic: works against any DocumentSource (Google Docs, markdown, …).
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
-import { fetchDoc, findTextLocation, batchUpdate, findAllCitationOccurrences } from "../lib/google-docs.js";
+import { GoogleDocsSource } from "../lib/google-docs.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
-import { formatBibPreview, logOperation, checkRevisionId, validateBatchRequests, getBodyEndIndex } from "../lib/safety.js";
+import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
 import { resolveDocId } from "../lib/config.js";
-import type { docs_v1 } from "googleapis";
+import type { DocumentSource } from "../lib/document-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
     .command("bib")
-    .description("Generate or update the bibliography section in a Google Doc")
+    .description("Generate or update the bibliography section in a document")
     .option("--doc <docId>", "Google Doc ID")
     .option("--style <style>", "Citation style override")
     .option("--after <text>", "Insert bibliography after this text (first time only)")
@@ -35,18 +35,15 @@ export function registerBibCommand(program: Command): void {
 
       if (docState.citations.length === 0) {
         console.log(
-          chalk.yellow("No citations in this document. Use 'cite insert' first."),
+          chalk.yellow("No citations in this document. Use 'cite scan' or 'cite insert' first."),
         );
         return;
       }
 
-      const style = (opts.style || docState.style) as CitationStyle; // opts.style comes from CLI string
+      const style = (opts.style || docState.style) as CitationStyle;
       const library = await loadLibrary(docState.libraryId);
 
-      // Build bibliography entries in citation order
-      const sortedCitations = [...docState.citations].sort(
-        (a, b) => a.index - b.index,
-      );
+      const sortedCitations = [...docState.citations].sort((a, b) => a.index - b.index);
 
       const bibEntries: string[] = [];
       for (const citation of sortedCitations) {
@@ -62,7 +59,6 @@ export function registerBibCommand(program: Command): void {
 
       const bibText = "\n\n" + bibEntries.join("\n") + "\n";
 
-      // Preview
       console.log(formatBibPreview(bibEntries));
       console.log("");
 
@@ -82,11 +78,11 @@ export function registerBibCommand(program: Command): void {
         }
       }
 
-      // Fetch doc to get current state
-      console.log("Fetching document...");
-      const doc = await fetchDoc(opts.doc);
+      const source: DocumentSource = new GoogleDocsSource(opts.doc);
+      console.log(`Fetching ${source.describe()}...`);
+      const present = await source.findPresentCitationKeys();
 
-      if (docState.revisionId && !checkRevisionId(docState.revisionId, doc.revisionId)) {
+      if (docState.revisionId && !checkRevisionId(docState.revisionId, present.revisionToken)) {
         console.log(
           chalk.yellow(
             "Warning: Document has been modified since last cite operation.",
@@ -94,107 +90,27 @@ export function registerBibCommand(program: Command): void {
         );
       }
 
-      // Cross-check: verify citation named ranges exist in the document
-      const docCitations = findAllCitationOccurrences(doc.namedRanges);
-      const docCitationKeys = new Set(docCitations.map((c) => c.key));
+      // Cross-check: every key tracked in state should be present in the doc.
       const stateKeys = new Set(docState.citations.map((c) => c.key));
-
-      const missingRanges = [...stateKeys].filter((k) => !docCitationKeys.has(k));
-      if (missingRanges.length > 0) {
+      const missing = [...stateKeys].filter((k) => !present.keys.has(k));
+      if (missing.length > 0) {
         console.log(
           chalk.yellow(
-            `Warning: ${missingRanges.length} citation(s) tracked in state but missing named ranges in document: ` +
-            missingRanges.join(", ") +
+            `Warning: ${missing.length} citation(s) tracked in state but missing from document body: ` +
+            missing.join(", ") +
             `\nRun 'cite refresh --doc ${opts.doc}' to repair.`,
           ),
         );
       }
 
-      const requests: docs_v1.Schema$Request[] = [];
-      const bibRangeName = docState.bibNamedRange || "cite-bibliography";
-      const namedRanges = doc.namedRanges;
-      // Google Docs `namedRanges[name]` is a wrapper { name, namedRanges: [...] }
-      const existingRanges = namedRanges?.[bibRangeName]?.namedRanges ?? [];
-
-      let insertIndex: number;
-
-      if (existingRanges.length > 0) {
-        // Find the range spanning the existing bibliography
-        const nr = existingRanges[0];
-        const range = nr.ranges?.[0];
-        if (range?.startIndex != null && range?.endIndex != null) {
-          insertIndex = range.startIndex;
-
-          // Delete the old named range
-          if (nr.namedRangeId) {
-            requests.push({
-              deleteNamedRange: { namedRangeId: nr.namedRangeId },
-            });
-          }
-
-          // Delete old bibliography content
-          requests.push({
-            deleteContentRange: {
-              range: {
-                startIndex: range.startIndex,
-                endIndex: range.endIndex,
-              },
-            },
-          });
-        } else {
-          // Range metadata is broken — fall back to appending at end
-          insertIndex = getBodyEndIndex(doc.body) - 1;
-        }
-      } else {
-        // First time: determine insertion point
-        if (opts.after) {
-          const loc = findTextLocation(doc.body, opts.after);
-          if (!loc) {
-            console.error(
-              chalk.red(`Text "${opts.after}" not found in document.`),
-            );
-            process.exit(1);
-          }
-          insertIndex = loc.endIndex;
-        } else {
-          insertIndex = getBodyEndIndex(doc.body) - 1;
-          console.log(
-            chalk.dim("  Bibliography will be appended at end of document."),
-          );
-        }
-      }
-
-      // Insert the new bibliography text
-      requests.push({
-        insertText: {
-          location: { index: insertIndex },
-          text: bibText,
-        },
+      const outcome = await source.writeBibliography(bibText, {
+        afterText: opts.after,
+        bibRangeName: docState.bibNamedRange,
       });
 
-      // Create a named range around the inserted bibliography so we can
-      // find and replace it on subsequent runs
-      requests.push({
-        createNamedRange: {
-          name: bibRangeName,
-          range: {
-            startIndex: insertIndex,
-            endIndex: insertIndex + bibText.length,
-          },
-        },
-      });
-
-      docState.bibNamedRange = bibRangeName;
-
-      // Pre-write safety validation
-      validateBatchRequests(requests, doc.body);
-
-      // Execute
-      await batchUpdate(opts.doc, requests);
-
-      // Update state
+      docState.bibNamedRange = outcome.bibRangeName;
       docState.lastSync = new Date().toISOString();
-      docState.revisionId = doc.revisionId;
+      docState.revisionId = outcome.newRevisionToken;
       await saveDocState(docState);
 
       await logOperation(
