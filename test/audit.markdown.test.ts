@@ -77,12 +77,27 @@ describe("audit markdown integration", () => {
     expect(output).toContain("Orphaned library entries (not cited): 1");
     expect(output).toContain("unused2020");
   });
+
+  it("preserves the markdown file path as the document title in --offline mode", async () => {
+    const output = await runAudit({
+      markdown: "Body cites [@battelino2019].\n",
+      citations: [citation(1, "battelino2019")],
+      library: [entry("battelino2019")],
+      offline: true,
+    });
+
+    expect(output).toMatch(/Document: "markdown:.*draft\.md"/);
+    expect(output).not.toContain('"(offline mode)"');
+    expect(output).not.toContain("Untracked markers in doc");
+    expect(output).not.toContain("Citations missing from doc body");
+  });
 });
 
 interface AuditFixture {
   markdown: string;
   citations: CitationEntry[];
   library: LibraryEntry[];
+  offline?: boolean;
 }
 
 async function runAudit(fixture: AuditFixture): Promise<string> {
@@ -106,7 +121,9 @@ async function runAudit(fixture: AuditFixture): Promise<string> {
   const program = new Command();
   program.exitOverride();
   registerAuditCommand(program);
-  await program.parseAsync(["node", "cite", "audit", "--markdown", markdownPath]);
+  const argv = ["node", "cite", "audit", "--markdown", markdownPath];
+  if (fixture.offline) argv.push("--offline");
+  await program.parseAsync(argv);
 
   return logs.join("\n");
 }

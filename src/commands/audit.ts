@@ -4,9 +4,9 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
-import { resolveSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { loadLibrary } from "../lib/library.js";
-import { fetchDoc } from "../lib/google-docs.js";
+import { fetchDoc, findAllCitationOccurrences } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
 
 export function registerAuditCommand(program: Command): void {
@@ -18,15 +18,10 @@ export function registerAuditCommand(program: Command): void {
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      const source = resolved.source;
-      opts.doc = resolved.stateKey;
-      const docState = await loadDocState(opts.doc);
+      const { source, stateKey } = resolved;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
-        console.error(
-          chalk.red(
-            `Doc ${opts.doc} not initialized. Run 'cite init --doc ${opts.doc}' first.`,
-          ),
-        );
+        console.error(chalk.red(`Document not initialized. Run '${initHintForSource(resolved)}' first.`));
         process.exit(1);
       }
 
@@ -49,7 +44,7 @@ export function registerAuditCommand(program: Command): void {
       // Find orphaned library entries (in library but not cited)
       const orphaned = library.filter((e) => !citedKeys.has(e.key));
 
-      // Check for numbering gaps
+      // Check for numbering gaps (Google Docs only — markdown uses [@key] markers, no numeric indices)
       const indices = docState.citations.map((c) => c.index).sort((a, b) => a - b);
       const gaps: number[] = [];
       if (source.kind === "google-docs") {
@@ -62,20 +57,25 @@ export function registerAuditCommand(program: Command): void {
         }
       }
 
-      // If online, also scan the document for citation markers
-      let presentCitationKeys: Set<string> | null = null;
-      let docTitle = "(offline mode)";
+      // Body cross-check via the source's view of present cite-keys.
+      // Markdown gets its file path as title even when --offline.
+      const presentCitationKeys = new Set<string>();
+      let docTitle = source.kind === "markdown" ? source.describe() : "(offline mode)";
+      let bodyChecked = false;
       if (!opts.offline) {
         try {
           if (source.kind === "google-docs") {
-            const doc = await fetchDoc(opts.doc);
+            // Single fetch — use the same doc payload for both title and body keys.
+            const doc = await fetchDoc(stateKey);
             docTitle = doc.title;
+            for (const occ of findAllCitationOccurrences(doc.namedRanges)) {
+              presentCitationKeys.add(occ.key);
+            }
+          } else {
+            const present = await source.findPresentCitationKeys();
+            for (const k of present.keys) presentCitationKeys.add(k);
           }
-          const present = await source.findPresentCitationKeys();
-          presentCitationKeys = present.keys;
-          if (source.kind === "markdown") {
-            docTitle = source.describe();
-          }
+          bodyChecked = true;
         } catch {
           console.log(
             chalk.yellow("Could not fetch document. Using offline mode.\n"),
@@ -86,7 +86,7 @@ export function registerAuditCommand(program: Command): void {
 
       // Report
       console.log(chalk.bold(`\nDocument: "${docTitle}"`));
-      console.log(`Doc ID: ${opts.doc}`);
+      console.log(`State ID: ${stateKey}`);
       console.log(`Library: ${docState.libraryId}`);
       console.log(`Style: ${docState.style}`);
       console.log(`Last sync: ${docState.lastSync}\n`);
@@ -126,7 +126,7 @@ export function registerAuditCommand(program: Command): void {
         }
       }
 
-      if (presentCitationKeys) {
+      if (bodyChecked) {
         const trackedKeys = new Set(docState.citations.map((c) => c.key));
         const untrackedInDoc = [...presentCitationKeys].filter(
           (key) => !trackedKeys.has(key),
