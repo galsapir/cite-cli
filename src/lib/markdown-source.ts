@@ -22,8 +22,8 @@ interface MarkdownCursor {
   end: number;
 }
 
-const PANDOC_CITE_RE = /\[@([A-Za-z][A-Za-z0-9_:.-]*)(?:[;\s]+@[A-Za-z][A-Za-z0-9_:.-]*)*\]/g;
-const PANDOC_KEY_RE = /@([A-Za-z][A-Za-z0-9_:.-]*)/g;
+const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
+const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 
 /** Thrown when the file changed on disk between load and write. */
 export class MarkdownChangedDuringRunError extends Error {
@@ -133,6 +133,9 @@ export class MarkdownDocumentSource implements DocumentSource {
     const text = await this.readContent();
     const keys = new Set<string>();
     for (const m of text.matchAll(PANDOC_CITE_RE)) {
+      // `[text](url)` is a markdown link, not a pandoc citation — skip.
+      const after = text[(m.index ?? 0) + m[0].length];
+      if (after === "(") continue;
       for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
         keys.add(km[1]);
       }
