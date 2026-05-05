@@ -1,8 +1,8 @@
 # cite
 
-A terminal-based citation manager for Google Docs.
+A terminal-based citation manager for Google Docs and local markdown files.
 
-`cite` resolves papers by DOI, PMID, arXiv ID, or title search, stores them in a local library synced with [Zotero](https://www.zotero.org/), and inserts inline citations and bibliographies directly into Google Docs — all from the command line.
+`cite` resolves papers by DOI, PMID, arXiv ID, or title search, stores them in a local library synced with [Zotero](https://www.zotero.org/), and inserts inline citations and bibliographies directly into either a Google Doc or a markdown file — all from the command line.
 
 ## Workflow
 
@@ -21,6 +21,28 @@ cite use --doc <DOC_ID> --collection my-paper  # set active doc + collection
 cite scan              # finds pasted URLs, resolves them, inserts [1] [2] etc.
 cite bib --after "References"   # generate bibliography
 ```
+
+### Markdown workflow
+
+`scan` and `bib` also work on local markdown files. Inline citations land as pandoc-style `[@bibkey]` markers (durable across renumbering); the bibliography lands under a `## References` heading.
+
+```bash
+cite init --markdown docs/whitepaper_draft.md --library group/6466726 --style vancouver
+cite scan --markdown docs/whitepaper_draft.md          # converts [Author](DOI) links to [@key]
+cite bib  --markdown docs/whitepaper_draft.md          # writes / updates ## References
+```
+
+`cite use --markdown <path>` sets the file as the active source so subsequent `scan`/`bib` calls don't need the flag. `insert`, `audit`, `refresh`, and `remove` are not yet markdown-aware — they exit with a clear message pointing at the planned follow-up.
+
+### Exporting a Google Doc to markdown
+
+`cite export` reads tab-N of a Google Doc and writes it out as markdown, extracting any inline images:
+
+```bash
+cite export --doc <DOC_ID> --tab 0 --out docs/draft.md --image-dir docs/figures
+```
+
+Headings, bold/italic, links, lists, GitHub-flavoured tables, and fenced code blocks are preserved. Read-only against the source doc.
 
 ### Manual citation flow
 
@@ -51,13 +73,14 @@ npm install && npm run build
 
 | Command | Description |
 |---------|-------------|
-| `cite use` | Set or show the active document and collection |
-| `cite scan` | Scan doc for pasted reference URLs and convert to citations |
+| `cite use` | Set or show the active document (`--doc` or `--markdown`) and collection |
+| `cite scan` | Scan a Google Doc or markdown file for pasted reference URLs and convert to citations |
 | `cite add <identifier>` | Add a reference by DOI, PMID, arXiv, URL, or title |
 | `cite search [query]` | Search the local library |
-| `cite init` | Initialize a Google Doc for citations |
-| `cite insert` | Insert an inline citation |
-| `cite bib` | Generate or update bibliography |
+| `cite init` | Initialize a Google Doc (`--doc`) or markdown file (`--markdown`) for citations |
+| `cite insert` | Insert an inline citation (Google Docs only — markdown planned) |
+| `cite bib` | Generate or update bibliography (Google Docs or markdown) |
+| `cite export` | Export a Google Doc tab to markdown (read-only, with image extraction) |
 | `cite audit` | Audit citations for consistency |
 | `cite refresh` | Repair citations after document reorganization |
 | `cite remove` | Remove a citation and renumber |
@@ -67,7 +90,7 @@ npm install && npm run build
 | `cite config show` | View configuration |
 | `cite auth google/zotero` | Set up authentication |
 
-All commands that operate on a document accept `--doc <id>`, but if you've set an active doc with `cite use`, it's optional.
+All commands that operate on a document accept `--doc <id>` or `--markdown <path>` (where supported), but if you've set an active source with `cite use`, the flag is optional.
 
 See [docs/usage.md](docs/usage.md) for full command reference.
 
