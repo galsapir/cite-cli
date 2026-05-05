@@ -17,6 +17,7 @@ import { registerConfigCommand } from "./commands/config-cmd.js";
 import { registerRefreshCommand } from "./commands/refresh.js";
 import { registerScanCommand } from "./commands/scan.js";
 import { registerUseCommand } from "./commands/use.js";
+import { registerExportCommand } from "./commands/export.js";
 import { ensureCiteDir } from "./lib/config.js";
 
 const program = new Command();
@@ -41,6 +42,7 @@ registerConfigCommand(program);
 registerRefreshCommand(program);
 registerScanCommand(program);
 registerUseCommand(program);
+registerExportCommand(program);
 
 // Ensure ~/.cite directory structure exists
 await ensureCiteDir();
