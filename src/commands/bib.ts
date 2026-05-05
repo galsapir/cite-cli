@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
@@ -25,10 +25,7 @@ export function registerBibCommand(program: Command): void {
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
-        const initHint = source.kind === "markdown"
-          ? `cite init --markdown ${opts.markdown ?? resolved.options.markdown}`
-          : `cite init --doc ${stateKey}`;
-        console.error(chalk.red(`Document not initialized. Run '${initHint}' first.`));
+        console.error(chalk.red(`Document not initialized. Run '${initHintForSource(resolved)}' first.`));
         process.exit(1);
       }
 

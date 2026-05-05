@@ -219,9 +219,9 @@ describe("convertDocumentTab", () => {
     });
     expect(calls).toEqual(["https://docs.googleusercontent.com/contentUri-fake"]);
     expect(out.images).toHaveLength(1);
-    expect(out.images[0].filename).toBe("doc1_figure_1_architecture.png");
+    expect(out.images[0].filename).toMatch(/^doc1_figure_1_architecture_[0-9a-f]{8}\.png$/);
     expect(out.images[0].bytes.toString()).toContain("PNG");
-    expect(out.markdown).toContain("![Figure 1: Architecture](./figures/doc1_figure_1_architecture.png)");
+    expect(out.markdown).toMatch(/!\[Figure 1: Architecture\]\(\.\/figures\/doc1_figure_1_architecture_[0-9a-f]{8}\.png\)/);
   });
 
   it("converts cite-cli citation hyperlinks back to pandoc [@key] markers", async () => {

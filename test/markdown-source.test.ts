@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MarkdownDocumentSource } from "../src/lib/markdown-source.js";
+import {
+  MarkdownDocumentSource,
+  MarkdownChangedDuringRunError,
+} from "../src/lib/markdown-source.js";
 import type { CitationStyle, LibraryEntry } from "../src/types/index.js";
 
 let workDir: string;
@@ -99,5 +102,71 @@ describe("MarkdownDocumentSource", () => {
     await src.writeBibliography("\n\n1. Ref.\n", {});
     const t2 = await src.revisionToken();
     expect(t1).not.toEqual(t2);
+  });
+
+  it("aborts writeScanResults when the file changed externally between load and write", async () => {
+    const src = await withFile(
+      "Cite [Battelino](https://doi.org/10.2337/dci19-0028).\n",
+    );
+    const loaded = await src.loadAcademicReferences();
+    // Simulate a concurrent edit: rewrite the file with different content + bumped mtime.
+    await new Promise((r) => setTimeout(r, 5));
+    await writeFile(src.filePath, "Completely different content.\n", "utf-8");
+
+    const items = [{ ref: loaded.refs[0], key: "battelino2019", index: 1 }];
+    await expect(
+      src.writeScanResults(items, "vancouver" as CitationStyle, [] as LibraryEntry[]),
+    ).rejects.toBeInstanceOf(MarkdownChangedDuringRunError);
+
+    // Original (post-edit) content must remain intact.
+    const onDisk = await readFile(src.filePath, "utf-8");
+    expect(onDisk).toBe("Completely different content.\n");
+  });
+
+  it("aborts writeBibliography when the file changed externally between load and write", async () => {
+    const src = await withFile("# Paper\n\nBody [@one].\n");
+    await src.findPresentCitationKeys();
+    await new Promise((r) => setTimeout(r, 5));
+    await writeFile(src.filePath, "Manual rewrite.\n", "utf-8");
+
+    await expect(
+      src.writeBibliography("\n\n1. Ref.\n", {}),
+    ).rejects.toBeInstanceOf(MarkdownChangedDuringRunError);
+
+    const onDisk = await readFile(src.filePath, "utf-8");
+    expect(onDisk).toBe("Manual rewrite.\n");
+  });
+
+  it("does not leave a temp file on disk after a successful write", async () => {
+    const src = await withFile(
+      "Cite [Battelino](https://doi.org/10.2337/dci19-0028).\n",
+    );
+    const loaded = await src.loadAcademicReferences();
+    await src.writeScanResults(
+      [{ ref: loaded.refs[0], key: "k1", index: 1 }],
+      "vancouver" as CitationStyle,
+      [],
+    );
+    const { readdir } = await import("node:fs/promises");
+    const dir = await readdir(workDir);
+    expect(dir.filter((n) => n.includes(".cite.tmp."))).toHaveLength(0);
+  });
+
+  it("parses markdown links whose URL contains balanced parentheses", async () => {
+    const src = await withFile(
+      "See [Curly](https://doi.org/10.1000/(abc)def) for context.\n",
+    );
+    const out = await src.loadAcademicReferences();
+    expect(out.refs).toHaveLength(1);
+    expect(out.refs[0].url).toBe("https://doi.org/10.1000/(abc)def");
+    expect(out.refs[0].text).toBe("Curly");
+
+    await src.writeScanResults(
+      [{ ref: out.refs[0], key: "curly2024", index: 1 }],
+      "vancouver" as CitationStyle,
+      [],
+    );
+    const after = await readFile(src.filePath, "utf-8");
+    expect(after).toBe("See [@curly2024] for context.\n");
   });
 });

@@ -10,7 +10,7 @@ import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import type { PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
@@ -36,10 +36,7 @@ export function registerScanCommand(program: Command): void {
       const { source, stateKey } = resolvedSrc;
       const docState = await loadDocState(stateKey);
       if (!docState) {
-        const initHint = source.kind === "markdown"
-          ? `cite init --markdown ${opts.markdown ?? resolvedSrc.options.markdown}`
-          : `cite init --doc ${stateKey}`;
-        console.error(chalk.red(`Document not initialized. Run '${initHint}' first.`));
+        console.error(chalk.red(`Document not initialized. Run '${initHintForSource(resolvedSrc)}' first.`));
         process.exit(1);
       }
 

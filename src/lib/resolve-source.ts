@@ -23,10 +23,6 @@ export interface ResolvedSource {
 }
 
 /**
- * Build the right DocumentSource for a command run.
- * Precedence: explicit `--markdown` > explicit `--doc` > config `defaults.markdown` > config `defaults.doc`.
- */
-/**
  * Reject if the resolved source is markdown — used by commands that haven't
  * been wired to the markdown backend yet (insert/audit/refresh/remove).
  * Process exits non-zero with a friendly message.
@@ -36,10 +32,9 @@ export function requireGoogleDocsSource(
   commandName: string,
 ): void {
   if (resolved.source.kind === "markdown") {
-    // Importing chalk here would create another dep; keep the message plain.
     const path = resolved.options.markdown ?? "the markdown file";
     process.stderr.write(
-      `Error: 'cite ${commandName}' is not yet markdown-aware (planned in a follow-up PR).\n` +
+      `Error: 'cite ${commandName}' is not yet markdown-aware.\n` +
       `       Source: ${path}\n` +
       `       For now, use 'cite scan' / 'cite bib' for markdown, or pass --doc to operate on a Google Doc.\n`,
     );
@@ -47,7 +42,25 @@ export function requireGoogleDocsSource(
   }
 }
 
+/** Format the `cite init …` hint for the resolved source — used in not-initialized errors. */
+export function initHintForSource(resolved: ResolvedSource): string {
+  if (resolved.source.kind === "markdown") {
+    const path = resolved.options.markdown ?? "(unknown)";
+    return `cite init --markdown ${path}`;
+  }
+  return `cite init --doc ${resolved.stateKey}`;
+}
+
+/**
+ * Build the right DocumentSource for a command run.
+ * Precedence: explicit `--markdown` > explicit `--doc` > config `defaults.markdown` > config `defaults.doc`.
+ */
 export async function resolveSource(opts: SourceResolveOptions): Promise<ResolvedSource> {
+  if (opts.markdown && opts.doc) {
+    process.stderr.write("Error: pass either --doc or --markdown, not both.\n");
+    process.exit(1);
+  }
+
   if (opts.markdown) {
     const source = new MarkdownDocumentSource(opts.markdown);
     return {
@@ -57,8 +70,6 @@ export async function resolveSource(opts: SourceResolveOptions): Promise<Resolve
     };
   }
 
-  // Fall back to a saved active markdown file (set via `cite use --markdown`)
-  // before bouncing to the Google Docs path.
   const config = await loadConfig();
   const activeMarkdown = config.defaults?.markdown;
   if (!opts.doc && activeMarkdown) {

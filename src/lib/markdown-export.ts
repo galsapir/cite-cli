@@ -364,7 +364,11 @@ async function renderInlineObject(
   }
 
   const altText = (embedded.title || embedded.description || "").trim();
-  const slug = sanitizeForFilename(altText) || shortHash(inlineObjectId);
+  // Always include the inline-object hash so two images with identical alt text
+  // don't collide on the same filename.
+  const disambiguator = shortHash(inlineObjectId);
+  const slug = sanitizeForFilename(altText);
+  const stem = slug ? `${slug}_${disambiguator}` : disambiguator;
 
   let bytes: Buffer;
   let contentType = "image/png";
@@ -378,7 +382,7 @@ async function renderInlineObject(
   }
 
   const ext = extensionFromContentType(contentType);
-  const filename = `${rc.ctx.imagePrefix}_${slug}.${ext}`;
+  const filename = `${rc.ctx.imagePrefix}_${stem}.${ext}`;
   rc.images.push({ filename, bytes, contentType, altText });
 
   const relPath = `${rc.ctx.imageDirRelPath.replace(/\/+$/, "")}/${filename}`;

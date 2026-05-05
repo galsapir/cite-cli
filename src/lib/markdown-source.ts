@@ -1,7 +1,7 @@
 // ABOUTME: DocumentSource implementation backed by a local markdown file.
 // ABOUTME: Reads the file once per command run; writes apply edits via descending splice.
 
-import { readFile, writeFile, stat } from "node:fs/promises";
+import { readFile, writeFile, rename, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
 import { isAcademicUrl } from "./google-docs.js";
@@ -17,28 +17,32 @@ import type {
 } from "./document-source.js";
 import type { CitationStyle, LibraryEntry } from "../types/index.js";
 
-/** Cursor identifying a markdown link span `[text](url)` in the file. */
 interface MarkdownCursor {
-  /** Byte offset where the link starts (the `[`). */
   start: number;
-  /** Byte offset just past the link's `)`. */
   end: number;
 }
 
-/** Pandoc-style citation regex: `[@key]`, `[@key1; @key2]`, etc. */
 const PANDOC_CITE_RE = /\[@([A-Za-z][A-Za-z0-9_:.-]*)(?:[;\s]+@[A-Za-z][A-Za-z0-9_:.-]*)*\]/g;
-/** Standalone single-key extractor used inside a matched group. */
 const PANDOC_KEY_RE = /@([A-Za-z][A-Za-z0-9_:.-]*)/g;
-/** Markdown link regex `[text](url)` — non-greedy text, URL stops at first `)` or whitespace. */
-const MD_LINK_RE = /\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g;
+
+/** Thrown when the file changed on disk between load and write. */
+export class MarkdownChangedDuringRunError extends Error {
+  constructor(filePath: string) {
+    super(
+      `Markdown file changed on disk since cite started reading it (${filePath}). ` +
+      `Re-run the command — your edits would otherwise be overwritten.`,
+    );
+    this.name = "MarkdownChangedDuringRunError";
+  }
+}
 
 export class MarkdownDocumentSource implements DocumentSource {
   readonly kind = "markdown" as const;
 
-  /** Absolute path used for both reading and writing. */
   readonly filePath: string;
 
   private cachedContent: string | null = null;
+  private loadedRevisionToken: string | null = null;
 
   constructor(filePath: string) {
     this.filePath = resolvePath(filePath);
@@ -60,47 +64,52 @@ export class MarkdownDocumentSource implements DocumentSource {
       stat(this.filePath),
       this.cachedContent ? Promise.resolve(this.cachedContent) : this.readContent(),
     ]);
-    const hash = createHash("sha1").update(content).digest("hex").slice(0, 12);
-    return `${stats.mtimeMs}-${hash}`;
+    return computeToken(stats.mtimeMs, content);
+  }
+
+  private async freshRevisionToken(): Promise<string> {
+    const text = await readFile(this.filePath, "utf-8");
+    const stats = await stat(this.filePath);
+    return computeToken(stats.mtimeMs, text);
+  }
+
+  private async assertUnchangedSinceLoad(): Promise<void> {
+    if (this.loadedRevisionToken === null) return;
+    const fresh = await this.freshRevisionToken();
+    if (fresh !== this.loadedRevisionToken) {
+      throw new MarkdownChangedDuringRunError(this.filePath);
+    }
   }
 
   async loadAcademicReferences(): Promise<LoadRefsOutcome> {
     const text = await this.readContent();
     const refs: PendingReference[] = [];
-    for (const m of text.matchAll(MD_LINK_RE)) {
-      const url = m[2];
-      if (!isAcademicUrl(url)) continue;
-      const start = m.index ?? -1;
-      if (start < 0) continue;
+    for (const link of findMarkdownLinks(text)) {
+      if (!isAcademicUrl(link.url)) continue;
       refs.push({
-        url,
-        text: m[1],
-        cursor: { start, end: start + m[0].length } satisfies MarkdownCursor,
+        url: link.url,
+        text: link.text,
+        cursor: { start: link.start, end: link.end } satisfies MarkdownCursor,
       });
     }
-    return { refs, revisionToken: await this.revisionToken() };
+    const token = await this.revisionToken();
+    this.loadedRevisionToken = token;
+    return { refs, revisionToken: token };
   }
 
   async writeScanResults(
     items: ScanWriteItem[],
-    style: CitationStyle,
-    library: LibraryEntry[],
+    _style: CitationStyle,
+    _library: LibraryEntry[],
   ): Promise<ScanWriteOutcome> {
+    await this.assertUnchangedSinceLoad();
     let text = this.cachedContent ?? (await this.readContent());
 
-    // Apply edits highest-offset first so earlier splices don't shift later ones.
     const sorted = [...items].sort((a, b) => {
       const ac = a.ref.cursor as MarkdownCursor;
       const bc = b.ref.cursor as MarkdownCursor;
       return bc.start - ac.start;
     });
-
-    // Markdown uses a pandoc-style key marker `[@key]` rather than a numeric
-    // [N] — the key is durable across renumbering, and `cite bib` can render
-    // numeric labels when generating the bibliography. The style/library args
-    // are accepted for parity with the Google Docs path but unused here.
-    void style;
-    void library;
 
     const occurrenceHandles: Record<string, string[]> = {};
     for (const item of sorted) {
@@ -113,9 +122,10 @@ export class MarkdownDocumentSource implements DocumentSource {
       occurrenceHandles[item.key].push(handle);
     }
 
-    await writeFile(this.filePath, text, "utf-8");
+    await atomicWriteFile(this.filePath, text);
     this.cachedContent = text;
     const newRevisionToken = await this.revisionToken();
+    this.loadedRevisionToken = newRevisionToken;
     return { occurrenceHandles, newRevisionToken };
   }
 
@@ -127,19 +137,19 @@ export class MarkdownDocumentSource implements DocumentSource {
         keys.add(km[1]);
       }
     }
-    return { keys, revisionToken: await this.revisionToken() };
+    const token = await this.revisionToken();
+    this.loadedRevisionToken = token;
+    return { keys, revisionToken: token };
   }
 
   async writeBibliography(
     bibText: string,
     options: BibWriteOptions,
   ): Promise<BibWriteOutcome> {
+    await this.assertUnchangedSinceLoad();
     let text = this.cachedContent ?? (await this.readContent());
     const heading = options.bibRangeName?.trim() || "References";
 
-    // Render bibliography as a `## References` section. The bib content the
-    // caller passes already starts with two newlines; trim whitespace so we can
-    // re-anchor it underneath the heading consistently.
     const bibBody = bibText.replace(/^\s+|\s+$/g, "");
     const replacement = `## ${heading}\n\n${bibBody}\n`;
 
@@ -158,12 +168,88 @@ export class MarkdownDocumentSource implements DocumentSource {
     }
     if (!text.endsWith("\n")) text += "\n";
 
-    await writeFile(this.filePath, text, "utf-8");
+    await atomicWriteFile(this.filePath, text);
     this.cachedContent = text;
+    const newRevisionToken = await this.revisionToken();
+    this.loadedRevisionToken = newRevisionToken;
     return {
       bibRangeName: heading,
-      newRevisionToken: await this.revisionToken(),
+      newRevisionToken,
     };
+  }
+}
+
+function computeToken(mtimeMs: number, content: string): string {
+  const hash = createHash("sha1").update(content).digest("hex").slice(0, 12);
+  return `${mtimeMs}-${hash}`;
+}
+
+/**
+ * Write atomically: write to a sibling temp file, then rename. Crash mid-write
+ * leaves either the old file intact or the temp file orphaned, never a
+ * truncated target.
+ */
+async function atomicWriteFile(path: string, content: string): Promise<void> {
+  const tmp = `${path}.cite.tmp.${process.pid}.${Date.now()}`;
+  await writeFile(tmp, content, "utf-8");
+  await rename(tmp, path);
+}
+
+interface MarkdownLink {
+  start: number;
+  end: number;
+  text: string;
+  url: string;
+}
+
+/**
+ * Yield markdown link spans `[text](url)`. Allows balanced parens and escapes
+ * inside the URL — the regex form `[^)\s]+` truncates on the first `)`, which
+ * mangles real DOI URLs like `https://doi.org/10.1000/(abc)def`.
+ */
+function* findMarkdownLinks(text: string): Generator<MarkdownLink> {
+  let i = 0;
+  while (i < text.length) {
+    const lb = text.indexOf("[", i);
+    if (lb < 0) return;
+
+    let rb = -1;
+    for (let j = lb + 1; j < text.length; j++) {
+      const c = text[j];
+      if (c === "\n" || c === "[") break;
+      if (c === "\\") { j++; continue; }
+      if (c === "]") { rb = j; break; }
+    }
+    if (rb < 0 || text[rb + 1] !== "(") { i = lb + 1; continue; }
+
+    let depth = 1;
+    const urlStart = rb + 2;
+    let k = urlStart;
+    let closeParen = -1;
+    while (k < text.length) {
+      const c = text[k];
+      if (c === "\\") { k += 2; continue; }
+      if (c === " " || c === "\t" || c === "\n") break;
+      if (c === "(") { depth++; k++; continue; }
+      if (c === ")") {
+        depth--;
+        if (depth === 0) { closeParen = k; break; }
+        k++; continue;
+      }
+      k++;
+    }
+    if (closeParen < 0) { i = lb + 1; continue; }
+
+    const url = text.slice(urlStart, closeParen);
+    if (!/^https?:\/\//.test(url)) { i = lb + 1; continue; }
+
+    yield {
+      start: lb,
+      end: closeParen + 1,
+      text: text.slice(lb + 1, rb),
+      url,
+    };
+    i = closeParen + 1;
   }
 }
 
