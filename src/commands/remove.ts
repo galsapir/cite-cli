@@ -356,12 +356,13 @@ async function removeFromManifest(
   opts: { key: string; dryRun: boolean; yes: boolean },
 ): Promise<void> {
   return await source.runWithLock(async () => {
-  // Pre-scan: detect presence in body, bib, and state. Mirrors single-file
-  // removeFromMarkdown's approach so a no-op key doesn't churn every file's
-  // mtime and a state-only stale entry still gets cleaned up.
-  const byFile = await source.findPresentCitationKeysByFile();
+  // Single body+bib scan covers presence-checking AND the post-remove rebuild
+  // (occurrence ORDER is preserved when a key is removed; offsets shift but
+  // firstAppearanceKeyOrder only cares about ordering). Avoids reading every
+  // body file twice on cite remove --manifest.
+  const bodyOccurrences = (await source.scanCitationOccurrences()).map((o) => o.occurrence);
   const bibPresent = await source.bibChild.findPresentCitationKeys();
-  const inBody = byFile.has(opts.key);
+  const inBody = bodyOccurrences.some((o) => o.key === opts.key);
   const inBib = bibPresent.keys.has(opts.key);
   const stateCitation = docState.citations.find((c) => c.key === opts.key);
 
@@ -372,7 +373,8 @@ async function removeFromManifest(
 
   console.log(chalk.bold("Will remove:"));
   console.log(`  Citation key "${opts.key}"`);
-  console.log(`  Files containing the key: ${inBody ? byFile.get(opts.key)!.length : 0} body${inBib ? " + bib" : ""}`);
+  const bodyHits = bodyOccurrences.filter((o) => o.key === opts.key).length;
+  console.log(`  Body occurrences: ${bodyHits}${inBib ? " (+ bib)" : ""}`);
   console.log(`  State cleanup: ${stateCitation ? "yes" : "no"}`);
   if ((inBody || inBib) && !stateCitation) {
     console.log(chalk.yellow(`Warning: Key "${opts.key}" appears in manifest files but is not tracked in state.`));
@@ -410,9 +412,11 @@ async function removeFromManifest(
     changedFiles = outcome.perFile.filter((item) => item.removed > 0).length;
   }
 
+  // Reuse the pre-scan: removed-key occurrences are gone; the rest keep their
+  // relative ordering, which is all firstAppearanceKeyOrder needs.
   const remainingCitations = docState.citations.filter((citation) => citation.key !== opts.key);
-  const occurrences = (await source.scanCitationOccurrences()).map((item) => item.occurrence);
-  const keyOrder = firstAppearanceKeyOrder(occurrences);
+  const remainingOccurrences = bodyOccurrences.filter((o) => o.key !== opts.key);
+  const keyOrder = firstAppearanceKeyOrder(remainingOccurrences);
 
   docState.citations = rebuildMarkdownCitations(keyOrder, remainingCitations, "remove-rebuild");
   docState.lastSync = new Date().toISOString();

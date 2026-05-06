@@ -18,7 +18,7 @@ import { MarkdownAnchorNotFoundError } from "../lib/markdown-source.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson, DocState, LibraryEntry } from "../types/index.js";
 import type { MarkdownDocumentSource, MarkdownInsertAnchor } from "../lib/markdown-source.js";
-import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
+import { multiHandle, type MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
 
 interface InsertOptions {
@@ -362,7 +362,7 @@ async function insertIntoManifest(
   }
 
   const outcome = await source.writeInsertionInFile(fileIdx, offset, marker);
-  const handle = `${fileIdx}:${offset}+${marker.length}`;
+  const handle = multiHandle(fileIdx, `${offset}+${marker.length}`);
   const nextIndex = docState.citations.length > 0
     ? Math.max(...docState.citations.map((citation) => citation.index)) + 1
     : 1;
