@@ -39,6 +39,15 @@ files:
 bibliography: references.md
 ```
 
+## Terminology
+
+- **Occurrence** — one `[@key]` marker in a body file. Two `[@battelino2019]` in the same file are two occurrences. Four occurrences across a manifest of three files is also fine.
+- **Citation** — a unique cite-key tracked in the per-document state (`~/.cite/docs/<state-key>.json` under `citations[]`). One entry per key, regardless of how many occurrences. The `namedRangeIds` field on a citation lists per-occurrence handles using the `${fileIdx}:${childHandle}` namespace.
+- **Library entry** — a unique reference in the local library mirror (`~/.cite/libraries/<library-id>.json`). Shared across documents; two documents citing the same DOI both see one library entry.
+- **Cite-key** — the human-readable identifier used in `[@key]` markers and as the join key between citations and library entries.
+
+A manifest of 3 body files where one DOI appears in files 1 and 3 yields **2 occurrences, 1 citation, 1 library entry**.
+
 ## Workflow
 
 This example uses the maintainer's pha-preprint Zotero group library. Replace `group/6466726` and `preprint-cits` with your own library and collection.
@@ -91,10 +100,14 @@ Health-LLM is available on arXiv [@kim2024].
 | `cite bib` | Reads citations across body files and writes/updates the bibliography target | `--manifest <path>`, `--style <style>`, `--dry-run` |
 | `cite audit` | Compares state, body markers, and library entries; reports file names for untracked markers | `--manifest <path>`, `--offline` |
 | `cite refresh` | Rebuilds citation state from body files in manifest order after copy/paste or file reorganization | `--manifest <path>`, `--dry-run` |
-| `cite remove` | Removes `[@key]` from all body files and the bibliography file, then renumbers state | `--manifest <path>`, `--key <key>`, `--dry-run` |
+| `cite remove` | Deletes every occurrence of `[@key]` from all body files and the bibliography file, then renumbers state | `--manifest <path>`, `--key <key>`, `--dry-run` |
 | `cite insert` | Inserts into one body file scoped by `--file`; the bibliography file is not a valid target | `--manifest <path>`, `--file <path>`, `--key <key>` or `--keys <keys>`, `--after <text>` or `--paragraph <n>` |
 
+**Note:** `cite remove --key X` deletes every occurrence of `[@X]` across all body files AND the bibliography file in one operation. There is no occurrence-scoped variant — if you want to remove just the citation you just inserted, ensure the key has no other occurrences in the manuscript first (use `cite search <query>` and inspect body files), or pick a key that isn't already cited.
+
 `cite insert --manifest` requires `--file <path>` so an anchor match is scoped to exactly one body file.
+
+Find valid cite-keys with `cite search --library <library-id>` (lists every entry) or `cite search <query>` (filters by author/title/key).
 
 ## How dedup works across files
 
