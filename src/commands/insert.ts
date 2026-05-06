@@ -11,7 +11,7 @@ import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { MarkdownAnchorNotFoundError } from "../lib/markdown-source.js";
 import type { docs_v1 } from "googleapis";
@@ -49,6 +49,7 @@ export function registerInsertCommand(program: Command): void {
     .action(async (opts: InsertOptions) => {
       validateInsertOptions(opts);
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolved, "insert");
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {

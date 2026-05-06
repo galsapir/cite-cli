@@ -34,7 +34,8 @@ export interface LibraryEntry {
 /** Discriminated union identifying the document a state record points to. */
 export type DocSource =
   | { type: "google-docs"; docId: string }
-  | { type: "markdown"; filePath: string };
+  | { type: "markdown"; filePath: string }
+  | { type: "markdown-manifest"; manifestPath: string };
 
 /** Per-doc citation state */
 export interface DocState {

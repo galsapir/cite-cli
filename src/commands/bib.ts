@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
@@ -22,6 +22,7 @@ export function registerBibCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolved, "bib");
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {

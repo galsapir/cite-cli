@@ -15,7 +15,7 @@ import {
 } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
@@ -32,6 +32,7 @@ export function registerRefreshCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolved, "refresh");
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {

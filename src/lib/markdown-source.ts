@@ -17,7 +17,7 @@ import type {
 } from "./document-source.js";
 import type { CitationStyle, LibraryEntry } from "../types/index.js";
 
-interface MarkdownCursor {
+export interface MarkdownCursor {
   start: number;
   end: number;
 }
