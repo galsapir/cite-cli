@@ -88,6 +88,11 @@ export async function acquireMarkdownLock(filePath: string): Promise<LockRelease
       stale: 30_000,
       retries: { retries: 5, factor: 1.5, minTimeout: 100, maxTimeout: 1000 },
       lockfilePath: `${filePath}.cite.lock`,
+      // Paths reaching here are already absolute (resolvePath in the source
+      // class). realpath: false skips symlink resolution AND lstat on the
+      // target — required because a manifest's bibliography file may not
+      // yet exist on disk when we lock (auto-created later by the bib write).
+      realpath: false,
     });
   } catch (err: any) {
     if (/locked|ELOCKED/i.test(String(err?.code) + String(err?.message))) {
