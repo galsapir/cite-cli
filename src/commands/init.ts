@@ -1,23 +1,39 @@
 // ABOUTME: CLI command to initialize a document for citation management.
-// ABOUTME: Creates per-doc state for either a Google Doc (--doc) or a markdown file (--markdown).
+// ABOUTME: Creates per-doc state for Google Docs, markdown files, or markdown manifests.
 
 import { Command } from "commander";
 import chalk from "chalk";
-import { initDocStateForGoogleDoc, initDocStateForMarkdown } from "../lib/doc-state.js";
+import { access, writeFile } from "node:fs/promises";
+import { resolve as resolvePath } from "node:path";
+import { initDocStateForGoogleDoc, initDocStateForManifest, initDocStateForMarkdown } from "../lib/doc-state.js";
 import type { CitationStyle } from "../types/index.js";
 import { loadConfig, resolveDocId } from "../lib/config.js";
+
+export async function ensureManifestFile(manifestPath: string): Promise<{ created: boolean; path: string }> {
+  const abs = resolvePath(manifestPath);
+  try {
+    await access(abs);
+    return { created: false, path: abs };
+  } catch (err: any) {
+    if (err.code !== "ENOENT") throw err;
+    await writeFile(abs, "files: []\nbibliography: references.md\n", "utf-8");
+    return { created: true, path: abs };
+  }
+}
 
 export function registerInitCommand(program: Command): void {
   program
     .command("init")
-    .description("Initialize a document (Google Doc or markdown file) for citation management")
+    .description("Initialize a document (Google Doc, markdown file, or manifest) for citation management")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file path")
+    .option("--manifest <path>", "Markdown manifest path")
     .option("--library <id>", "Library ID (e.g. group/12345)")
     .option("--style <style>", "Citation style", "vancouver")
     .action(async (opts) => {
-      if (opts.doc && opts.markdown) {
-        console.error(chalk.red("Pass either --doc or --markdown, not both."));
+      const explicitSources = [opts.doc, opts.markdown, opts.manifest].filter(Boolean);
+      if (explicitSources.length > 1) {
+        console.error(chalk.red("Pass at most one of --doc, --markdown, --manifest."));
         process.exit(1);
       }
 
@@ -28,6 +44,27 @@ export function registerInitCommand(program: Command): void {
         "local";
 
       try {
+        if (opts.manifest) {
+          const manifest = await ensureManifestFile(opts.manifest);
+          if (manifest.created) {
+            console.log(chalk.green(`✓ Manifest created at ${manifest.path}`));
+          }
+          const state = await initDocStateForManifest(
+            manifest.path,
+            libraryId,
+            opts.style as CitationStyle,
+          );
+          console.log(chalk.green("✓ Manifest initialized for citation management\n"));
+          console.log(`  Manifest: ${manifest.path}`);
+          console.log(`  StateId:  ${state.docId}`);
+          console.log(`  Library:  ${state.libraryId}`);
+          console.log(`  Style:    ${state.style}`);
+          console.log(
+            `\nUse ${chalk.cyan("cite scan --manifest <path>")} to convert pasted reference URLs and ${chalk.cyan("cite bib --manifest <path>")} to generate the bibliography.`,
+          );
+          return;
+        }
+
         if (opts.markdown) {
           const state = await initDocStateForMarkdown(
             opts.markdown,

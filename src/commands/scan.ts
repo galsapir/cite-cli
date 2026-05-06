@@ -10,7 +10,7 @@ import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import type { PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
@@ -33,6 +33,7 @@ export function registerScanCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolvedSrc, "scan");
       const { source, stateKey } = resolvedSrc;
       const docState = await loadDocState(stateKey);
       if (!docState) {

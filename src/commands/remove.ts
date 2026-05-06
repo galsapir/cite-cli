@@ -9,7 +9,7 @@ import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { formatReference } from "../lib/format.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
@@ -28,6 +28,7 @@ export function registerRemoveCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolved, "remove");
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {

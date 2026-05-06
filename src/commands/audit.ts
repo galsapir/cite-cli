@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
-import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findAllCitationOccurrences } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
@@ -18,6 +18,7 @@ export function registerAuditCommand(program: Command): void {
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
+      rejectManifestSource(resolved, "audit");
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {

@@ -48,7 +48,7 @@ export interface PresentCitationsOutcome {
   revisionToken: string;
 }
 
-export type DocumentSourceKind = "google-docs" | "markdown";
+export type DocumentSourceKind = "google-docs" | "markdown" | "markdown-manifest";
 
 export interface DocumentSource {
   readonly kind: DocumentSourceKind;
