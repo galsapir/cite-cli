@@ -51,6 +51,29 @@ describe("audit manifest integration", () => {
     expect(output).not.toContain("Citations missing from doc body");
   });
 
+  it("does not print Google Docs fetch fallback messages for local manifests", async () => {
+    const output = await runAudit({
+      files: { "intro.md": "Intro [@tracked].\n" },
+      citations: [citation(1, "tracked")],
+      library: [entry("tracked")],
+    });
+
+    expect(output).not.toContain("Could not fetch document");
+    expect(output).not.toContain("Using offline mode");
+  });
+
+  it("does not print Google Docs fetch fallback messages for offline local manifests", async () => {
+    const output = await runAudit({
+      files: { "intro.md": "Intro [@tracked].\n" },
+      citations: [citation(1, "tracked")],
+      library: [entry("tracked")],
+      offline: true,
+    });
+
+    expect(output).not.toContain("Could not fetch document");
+    expect(output).not.toContain("Using offline mode");
+  });
+
   it("reports bibliography-only markers as untracked", async () => {
     const output = await runAudit({
       files: { "intro.md": "Intro.\n", "references.md": "Refs [@bibonly].\n" },
@@ -76,6 +99,7 @@ interface AuditFixture {
   bibliography?: string;
   citations: CitationEntry[];
   library: LibraryEntry[];
+  offline?: boolean;
 }
 
 async function runAudit(fixture: AuditFixture): Promise<string> {
@@ -95,7 +119,9 @@ async function runAudit(fixture: AuditFixture): Promise<string> {
   const program = new Command();
   program.exitOverride();
   registerAuditCommand(program);
-  await program.parseAsync(["node", "cite", "audit", "--manifest", manifestPath]);
+  const argv = ["node", "cite", "audit", "--manifest", manifestPath];
+  if (fixture.offline) argv.push("--offline");
+  await program.parseAsync(argv);
   return logs.join("\n");
 }
 

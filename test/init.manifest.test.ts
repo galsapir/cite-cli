@@ -42,6 +42,29 @@ describe("init --manifest", () => {
     expect(state?.docId.startsWith("mfst_")).toBe(true);
   });
 
+  it("rejects an existing manifest missing required keys without creating state", async () => {
+    const manifestPath = join(env.workDir, "cite.manifest.yaml");
+    await writeFile(manifestPath, "# just a comment\n", "utf-8");
+
+    const result = await runInitExpectExit(["--manifest", manifestPath]);
+
+    expect(result.errors.join("\n")).toContain(`Manifest at ${resolve(manifestPath)} must be a YAML object.`);
+    const { loadDocState, stateKeyForSource } = await import("../src/lib/doc-state.js");
+    const state = await loadDocState(stateKeyForSource({ type: "markdown-manifest", manifestPath }));
+    expect(state).toBeNull();
+  });
+
+  it("accepts an existing valid empty manifest", async () => {
+    const manifestPath = join(env.workDir, "cite.manifest.yaml");
+    await writeFile(manifestPath, "files: []\nbibliography: x.md\n", "utf-8");
+
+    await runInit(["--manifest", manifestPath]);
+
+    const { loadDocState, stateKeyForSource } = await import("../src/lib/doc-state.js");
+    const state = await loadDocState(stateKeyForSource({ type: "markdown-manifest", manifestPath }));
+    expect(state?.source).toEqual({ type: "markdown-manifest", manifestPath: resolve(manifestPath) });
+  });
+
   it("errors when state already exists", async () => {
     const manifestPath = join(env.workDir, "cite.manifest.yaml");
     await runInit(["--manifest", manifestPath]);

@@ -8,6 +8,7 @@ import { resolve as resolvePath } from "node:path";
 import { initDocStateForGoogleDoc, initDocStateForManifest, initDocStateForMarkdown } from "../lib/doc-state.js";
 import type { CitationStyle } from "../types/index.js";
 import { loadConfig, resolveDocId } from "../lib/config.js";
+import { loadManifest } from "../lib/manifest.js";
 
 export async function ensureManifestFile(manifestPath: string): Promise<{ created: boolean; path: string }> {
   const abs = resolvePath(manifestPath);
@@ -49,6 +50,7 @@ export function registerInitCommand(program: Command): void {
           if (manifest.created) {
             console.log(chalk.green(`✓ Manifest created at ${manifest.path}`));
           }
+          await loadManifest(manifest.path);
           const state = await initDocStateForManifest(
             manifest.path,
             libraryId,

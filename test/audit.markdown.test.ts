@@ -75,6 +75,29 @@ describe("audit markdown integration", () => {
     expect(output).not.toContain("Untracked markers in doc");
     expect(output).not.toContain("Citations missing from doc body");
   });
+
+  it("does not print Google Docs fetch fallback messages for local markdown", async () => {
+    const output = await runAudit({
+      markdown: "Body cites [@battelino2019].\n",
+      citations: [citation(1, "battelino2019")],
+      library: [entry("battelino2019")],
+    });
+
+    expect(output).not.toContain("Could not fetch document");
+    expect(output).not.toContain("Using offline mode");
+  });
+
+  it("does not print Google Docs fetch fallback messages for offline local markdown", async () => {
+    const output = await runAudit({
+      markdown: "Body cites [@battelino2019].\n",
+      citations: [citation(1, "battelino2019")],
+      library: [entry("battelino2019")],
+      offline: true,
+    });
+
+    expect(output).not.toContain("Could not fetch document");
+    expect(output).not.toContain("Using offline mode");
+  });
 });
 
 interface AuditFixture {
@@ -111,4 +134,3 @@ async function runAudit(fixture: AuditFixture): Promise<string> {
 
   return logs.join("\n");
 }
-

@@ -1,17 +1,22 @@
 // ABOUTME: Verifies the markdown bibliography upsert flow used by 'cite bib --markdown'.
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { Command } from "commander";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MarkdownDocumentSource } from "../src/lib/markdown-source.js";
 import { formatBibEntry } from "../src/lib/formatter.js";
+import { setupCiteHome, type CiteHome } from "./helpers/cite-home.js";
 import type { CslJson } from "../src/types/index.js";
 
 let workDir: string;
+let env: CiteHome;
 beforeEach(async () => {
+  env = await setupCiteHome("cite-bib-md-home-");
   workDir = await mkdtemp(join(tmpdir(), "cite-bib-md-"));
 });
 afterEach(async () => {
+  await env.teardown();
   await rm(workDir, { recursive: true, force: true });
 });
 
@@ -63,4 +68,29 @@ describe("bib markdown integration", () => {
     expect(after).not.toContain("Older still");
     expect(after).toContain("## Appendix");
   });
+
+  it("warns and leaves an existing bibliography untouched when no citations remain", async () => {
+    const path = join(workDir, "draft.md");
+    const before = "# Paper\n\nBody.\n\n## References\n\n1. Old entry.\n";
+    await writeFile(path, before, "utf-8");
+    const { initDocStateForMarkdown } = await import("../src/lib/doc-state.js");
+    await initDocStateForMarkdown(path, "local", "vancouver");
+
+    const output = await runBibWithOutput(["--markdown", path, "-y"]);
+
+    expect(output).toContain(`Warning: The bibliography section in ${path} still contains entries from a previous run.`);
+    expect(output).toContain("No citations remain in the manuscript; the bibliography file was NOT modified automatically.");
+    await expect(readFile(path, "utf-8")).resolves.toBe(before);
+  });
 });
+
+async function runBibWithOutput(args: string[]): Promise<string> {
+  const logs: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((message = "") => { logs.push(String(message)); });
+  const { registerBibCommand } = await import("../src/commands/bib.js");
+  const program = new Command();
+  program.exitOverride();
+  registerBibCommand(program);
+  await program.parseAsync(["node", "cite", "bib", ...args]);
+  return logs.join("\n");
+}

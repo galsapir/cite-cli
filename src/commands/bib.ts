@@ -4,11 +4,15 @@
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
+import { readFile } from "node:fs/promises";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
 import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
+import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
+import type { DocumentSource } from "../lib/document-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
@@ -34,6 +38,7 @@ export function registerBibCommand(program: Command): void {
         console.log(
           chalk.yellow("No citations in this document. Use 'cite scan' or 'cite insert' first."),
         );
+        await warnIfStaleBibliography(source);
         return;
       }
 
@@ -130,4 +135,31 @@ export function registerBibCommand(program: Command): void {
       );
       });
     });
+}
+
+async function warnIfStaleBibliography(source: DocumentSource): Promise<void> {
+  const bibPath = bibliographyPathForSource(source);
+  if (!bibPath) return;
+
+  let text: string;
+  try {
+    text = await readFile(bibPath, "utf-8");
+  } catch (err: any) {
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+
+  if (!/^## +References[ \t]*$/im.test(text)) return;
+
+  console.log(chalk.yellow(
+    `Warning: The bibliography section in ${bibPath} still contains entries from a previous run.\n` +
+    "No citations remain in the manuscript; the bibliography file was NOT modified automatically.\n" +
+    "Edit the file by hand or run 'cite bib' again after re-adding citations.",
+  ));
+}
+
+function bibliographyPathForSource(source: DocumentSource): string | undefined {
+  if (source.kind === "markdown") return (source as MarkdownDocumentSource).filePath;
+  if (source.kind === "markdown-manifest") return (source as MultiMarkdownDocumentSource).bibChild.filePath;
+  return undefined;
 }

@@ -62,11 +62,41 @@ describe("remove manifest integration", () => {
 
     expect(result.output).toContain("Removed [@smith] from 2 file(s) (3 occurrence(s)).");
   });
+
+  it("removes a body key when the standalone bibliography file is missing", async () => {
+    const result = await runRemove({
+      files: { "a.md": "A [@smith] [@kept].\n" },
+      refs: null,
+      key: "smith",
+      citations: [citation(1, "smith"), citation(2, "kept")],
+      library: [entry("smith"), entry("kept")],
+    });
+
+    expect(result.filesAfter["a.md"]).toBe("A [@kept].\n");
+    expect(result.refsAfter).toBeNull();
+  });
+
+  it("previews removing a body key when the standalone bibliography file is missing", async () => {
+    const result = await runRemove({
+      files: { "a.md": "A [@smith] [@kept].\n" },
+      refs: null,
+      key: "smith",
+      dryRun: true,
+      citations: [citation(1, "smith"), citation(2, "kept")],
+      library: [entry("smith"), entry("kept")],
+    });
+
+    expect(result.output).toContain("(dry-run mode — no changes made)");
+    expect(result.filesAfter["a.md"]).toBe("A [@smith] [@kept].\n");
+    expect(result.refsAfter).toBeNull();
+    expect(result.after).toEqual(result.before);
+  });
 });
 
 interface RemoveFixture {
   files: Record<string, string>;
   refs?: string;
+  dryRun?: boolean;
   key: string;
   citations: CitationEntry[];
   library: LibraryEntry[];
@@ -75,13 +105,13 @@ interface RemoveFixture {
 interface RemoveResult {
   output: string;
   filesAfter: Record<string, string>;
-  refsAfter: string;
+  refsAfter: string | null;
   before: Awaited<ReturnType<typeof import("../src/lib/doc-state.js").loadDocState>>;
   after: Awaited<ReturnType<typeof import("../src/lib/doc-state.js").loadDocState>>;
 }
 
 async function runRemove(fixture: RemoveFixture): Promise<RemoveResult> {
-  const manifestPath = await writeProject(fixture.files, fixture.refs ?? "");
+  const manifestPath = await writeProject(fixture.files, fixture.refs === undefined ? "" : fixture.refs);
   const { initDocStateForManifest, loadDocState, saveDocState } = await import("../src/lib/doc-state.js");
   const { saveLibrary } = await import("../src/lib/library.js");
   const state = await initDocStateForManifest(manifestPath, "local", "vancouver" as CitationStyle);
@@ -97,23 +127,35 @@ async function runRemove(fixture: RemoveFixture): Promise<RemoveResult> {
   const program = new Command();
   program.exitOverride();
   registerRemoveCommand(program);
-  await program.parseAsync(["node", "cite", "remove", "--manifest", manifestPath, "--key", fixture.key, "--yes"]);
+  const argv = ["node", "cite", "remove", "--manifest", manifestPath, "--key", fixture.key];
+  if (fixture.dryRun) argv.push("--dry-run");
+  else argv.push("--yes");
+  await program.parseAsync(argv);
 
   const filesAfter: Record<string, string> = {};
   for (const file of Object.keys(fixture.files)) filesAfter[file] = await readFile(join(env.workDir, file), "utf-8");
   return {
     output: logs.join("\n"),
     filesAfter,
-    refsAfter: await readFile(join(env.workDir, "references.md"), "utf-8"),
+    refsAfter: await readOptionalFile(join(env.workDir, "references.md")),
     before,
     after: await loadDocState(state.docId),
   };
 }
 
-async function writeProject(files: Record<string, string>, refs: string): Promise<string> {
+async function writeProject(files: Record<string, string>, refs: string | null): Promise<string> {
   for (const [relativePath, text] of Object.entries(files)) await writeFile(join(env.workDir, relativePath), text, "utf-8");
-  await writeFile(join(env.workDir, "references.md"), refs, "utf-8");
+  if (refs !== null) await writeFile(join(env.workDir, "references.md"), refs, "utf-8");
   const manifestPath = join(env.workDir, "cite.manifest.yaml");
   await writeFile(manifestPath, `files:\n${Object.keys(files).map((file) => `  - ${file}`).join("\n")}\nbibliography: references.md\n`, "utf-8");
   return manifestPath;
+}
+
+async function readOptionalFile(path: string): Promise<string | null> {
+  try {
+    return await readFile(path, "utf-8");
+  } catch (err: any) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
 }
