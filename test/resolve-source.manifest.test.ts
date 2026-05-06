@@ -42,15 +42,6 @@ describe("resolveSource manifest support", () => {
     expect(result.stderr).toContain("Error: pass at most one of --doc, --markdown, --manifest.");
   });
 
-  it("requireGoogleDocsSource rejects manifest sources", async () => {
-    const manifestPath = await writeValidManifest();
-    const { resolveSource, requireGoogleDocsSource } = await import("../src/lib/resolve-source.js");
-    const resolved = await resolveSource({ manifest: manifestPath });
-    const result = expectExit(() => requireGoogleDocsSource(resolved, "cmd"));
-    expect(result.stderr).toContain("Error: 'cite cmd' is not yet manifest-aware.");
-    expect(result.stderr).toContain(`Manifest: ${manifestPath}`);
-  });
-
   it("formats the manifest init hint", async () => {
     const manifestPath = await writeValidManifest();
     const { resolveSource, initHintForSource } = await import("../src/lib/resolve-source.js");

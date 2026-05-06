@@ -26,9 +26,9 @@ import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.j
 export function registerRefreshCommand(program: Command): void {
   program
     .command("refresh")
-    .description("Repair citations: reconstruct named ranges from hyperlinks and renumber in document order")
+    .description("Repair citations: rebuild state from the source body and renumber in document order")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--markdown <path>", "Single markdown file to operate on")
     .option("--manifest <path>", "Markdown manifest to refresh")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")

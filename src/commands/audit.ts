@@ -15,7 +15,7 @@ export function registerAuditCommand(program: Command): void {
     .command("audit")
     .description("Audit citations in a document")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--markdown <path>", "Single markdown file to operate on")
     .option("--manifest <path>", "Markdown manifest to audit")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {

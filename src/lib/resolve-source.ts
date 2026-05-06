@@ -26,35 +26,6 @@ export interface ResolvedSource {
   options: SourceResolveOptions;
 }
 
-/**
- * Reject if the resolved source is markdown — used by commands that haven't
- * been wired to the markdown backend yet (insert/audit/refresh/remove).
- * Process exits non-zero with a friendly message.
- */
-export function requireGoogleDocsSource(
-  resolved: ResolvedSource,
-  commandName: string,
-): void {
-  if (resolved.source.kind === "markdown") {
-    const path = resolved.options.markdown ?? "the markdown file";
-    process.stderr.write(
-      `Error: 'cite ${commandName}' is not yet markdown-aware.\n` +
-      `       Source: ${path}\n` +
-      `       For now, use 'cite scan' / 'cite bib' for markdown, or pass --doc to operate on a Google Doc.\n`,
-    );
-    process.exit(1);
-  }
-  if (resolved.source.kind === "markdown-manifest") {
-    const path = resolved.options.manifest ?? "the manifest";
-    process.stderr.write(
-      `Error: 'cite ${commandName}' is not yet manifest-aware.\n` +
-      `       Manifest: ${path}\n` +
-      `       For now, use 'cite scan' / 'cite bib' for single markdown files, or pass --doc to operate on a Google Doc.\n`,
-    );
-    process.exit(1);
-  }
-}
-
 /** Format the `cite init …` hint for the resolved source — used in not-initialized errors. */
 export function initHintForSource(resolved: ResolvedSource): string {
   if (resolved.source.kind === "markdown") {
