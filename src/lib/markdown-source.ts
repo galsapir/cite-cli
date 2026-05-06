@@ -22,6 +22,13 @@ interface MarkdownCursor {
   end: number;
 }
 
+/** A single `@key` occurrence in document order with its character span. */
+export interface MarkdownCitationOccurrence {
+  key: string;
+  start: number;
+  end: number;
+}
+
 const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
 const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 
@@ -130,19 +137,41 @@ export class MarkdownDocumentSource implements DocumentSource {
   }
 
   async findPresentCitationKeys(): Promise<PresentCitationsOutcome> {
-    const text = await this.readContent();
+    const occurrences = await this.scanCitationOccurrences();
     const keys = new Set<string>();
-    for (const m of text.matchAll(PANDOC_CITE_RE)) {
-      // `[text](url)` is a markdown link, not a pandoc citation — skip.
-      const after = text[(m.index ?? 0) + m[0].length];
-      if (after === "(") continue;
-      for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
-        keys.add(km[1]);
-      }
-    }
+    for (const occurrence of occurrences) keys.add(occurrence.key);
     const token = await this.revisionToken();
     this.loadedRevisionToken = token;
     return { keys, revisionToken: token };
+  }
+
+  /**
+   * Walk the file and return every cite-key occurrence in document order.
+   *
+   * The `start`/`end` span covers `@key` only — it deliberately excludes a
+   * leading `-` (author-suppressed pandoc form) and the surrounding `[…]`.
+   * Callers that delete by this span need to consider the surrounding
+   * separators and bracket structure themselves.
+   */
+  async scanCitationOccurrences(): Promise<MarkdownCitationOccurrence[]> {
+    const text = await this.readContent();
+    const occurrences: MarkdownCitationOccurrence[] = [];
+    for (const m of text.matchAll(PANDOC_CITE_RE)) {
+      const citationStart = m.index ?? 0;
+      const after = text[citationStart + m[0].length];
+      if (after === "(") continue;
+      for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
+        const matchStart = citationStart + (km.index ?? 0);
+        const atOffset = km[0].lastIndexOf("@");
+        const start = matchStart + atOffset;
+        occurrences.push({
+          key: km[1],
+          start,
+          end: start + km[1].length + 1,
+        });
+      }
+    }
+    return occurrences;
   }
 
   async writeBibliography(
