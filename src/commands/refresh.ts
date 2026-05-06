@@ -15,10 +15,17 @@ import {
 } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
-import type { CitationEntry } from "../types/index.js";
+import type { CitationEntry, DocState } from "../types/index.js";
+import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
+
+interface MarkdownCitationOccurrence {
+  key: string;
+  start: number;
+  end: number;
+}
 
 export function registerRefreshCommand(program: Command): void {
   program
@@ -30,23 +37,28 @@ export function registerRefreshCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      requireGoogleDocsSource(resolved, "refresh");
-      opts.doc = resolved.stateKey;
-      const docState = await loadDocState(opts.doc);
+      const { source, stateKey } = resolved;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
         console.error(
-          chalk.red(
-            `Doc ${opts.doc} not initialized. Run 'cite init --doc ${opts.doc}' first.`,
-          ),
+          chalk.red(`Document not initialized. Run '${initHintForSource(resolved)}' first.`),
         );
         process.exit(1);
+      }
+
+      if (source.kind === "markdown") {
+        await refreshMarkdownSource(source as MarkdownDocumentSource, stateKey, docState, {
+          dryRun: Boolean(opts.dryRun),
+          yes: Boolean(opts.yes),
+        });
+        return;
       }
 
       const library = await loadLibrary(docState.libraryId);
       const libraryKeys = new Set(library.map((e) => e.key));
 
       console.log("Fetching document...");
-      const doc = await fetchDoc(opts.doc);
+      const doc = await fetchDoc(stateKey);
       console.log(`  Document: "${doc.title}"`);
 
       // Step 1: Collect all citations from named ranges
@@ -263,7 +275,7 @@ export function registerRefreshCommand(program: Command): void {
 
       // Validate and execute
       validateBatchRequests(allRequests, doc.body);
-      const replies = await batchUpdate(opts.doc, allRequests);
+      const replies = await batchUpdate(stateKey, allRequests);
 
       // Rebuild doc state from the new numbering
       const newCitations: CitationEntry[] = [];
@@ -300,7 +312,7 @@ export function registerRefreshCommand(program: Command): void {
       await saveDocState(docState);
 
       await logOperation(
-        opts.doc,
+        stateKey,
         `REFRESH: ${validPositions.length} positions, ${orphanedHyperlinks.length} repairs, ${keyOrder.length} unique keys`,
       );
 
@@ -310,4 +322,119 @@ export function registerRefreshCommand(program: Command): void {
         ),
       );
     });
+}
+
+async function refreshMarkdownSource(
+  source: MarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: { dryRun: boolean; yes: boolean },
+): Promise<void> {
+  console.log(`Fetching ${source.describe()}...`);
+  const occurrences = await source.scanCitationOccurrences();
+  const revisionToken = await source.revisionToken();
+
+  const keyOrder = firstAppearanceKeyOrder(occurrences);
+  const rebuilt = rebuildMarkdownCitations(keyOrder, docState.citations);
+  const dropped = docState.citations
+    .map((citation) => citation.key)
+    .filter((key) => !keyOrder.includes(key));
+  const added = keyOrder.filter(
+    (key) => !docState.citations.some((citation) => citation.key === key),
+  );
+  const renumbered = rebuilt.filter((citation) => {
+    const existing = docState.citations.find((current) => current.key === citation.key);
+    return existing && existing.index !== citation.index;
+  });
+
+  console.log(`  Citation markers: ${occurrences.length}`);
+  console.log(`  Unique citation keys: ${keyOrder.length}`);
+
+  if (dropped.length > 0) {
+    console.log(chalk.yellow(`Warning: Dropped citations: ${dropped.join(", ")}`));
+  }
+  if (added.length > 0) {
+    console.log(chalk.yellow(`Warning: Added citations: ${added.join(", ")}`));
+  }
+
+  console.log(`\n${chalk.bold("Renumbering plan:")}`);
+  if (rebuilt.length === 0) {
+    console.log(chalk.dim("  (no citations)"));
+  } else {
+    for (const citation of rebuilt) {
+      const previous = docState.citations.find((current) => current.key === citation.key);
+      const suffix = previous && previous.index !== citation.index
+        ? chalk.dim(` (was ${previous.index})`)
+        : "";
+      console.log(`  [${citation.index}] ${citation.key}${suffix}`);
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("\n(dry-run mode — no changes made)"));
+    return;
+  }
+
+  if (
+    dropped.length === 0 &&
+    added.length === 0 &&
+    renumbered.length === 0 &&
+    citationsEqual(docState.citations, rebuilt)
+  ) {
+    console.log(chalk.green("\n✓ No changes needed."));
+    return;
+  }
+
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: "Apply refresh?",
+      default: true,
+    });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  docState.citations = rebuilt;
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = revisionToken;
+  await saveDocState(docState);
+
+  await logOperation(
+    stateKey,
+    `REFRESH_MARKDOWN: ${occurrences.length} markers, ${keyOrder.length} unique keys`,
+  );
+
+  console.log(chalk.green(`\n✓ Refreshed ${keyOrder.length} citation(s)`));
+}
+
+function firstAppearanceKeyOrder(occurrences: MarkdownCitationOccurrence[]): string[] {
+  const keyOrder: string[] = [];
+  for (const occurrence of occurrences) {
+    if (!keyOrder.includes(occurrence.key)) keyOrder.push(occurrence.key);
+  }
+  return keyOrder;
+}
+
+function rebuildMarkdownCitations(
+  keyOrder: string[],
+  existingCitations: CitationEntry[],
+): CitationEntry[] {
+  return keyOrder.map((key, index) => {
+    const existing = existingCitations.find((citation) => citation.key === key);
+    const citation: CitationEntry = {
+      index: index + 1,
+      key,
+      location: existing?.location || "refresh",
+    };
+    if (existing?.namedRangeIds) {
+      citation.namedRangeIds = [...existing.namedRangeIds];
+    }
+    return citation;
+  });
+}
+
+function citationsEqual(left: CitationEntry[], right: CitationEntry[]): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }

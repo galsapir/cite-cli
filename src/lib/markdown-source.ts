@@ -130,19 +130,33 @@ export class MarkdownDocumentSource implements DocumentSource {
   }
 
   async findPresentCitationKeys(): Promise<PresentCitationsOutcome> {
-    const text = await this.readContent();
+    const occurrences = await this.scanCitationOccurrences();
     const keys = new Set<string>();
-    for (const m of text.matchAll(PANDOC_CITE_RE)) {
-      // `[text](url)` is a markdown link, not a pandoc citation — skip.
-      const after = text[(m.index ?? 0) + m[0].length];
-      if (after === "(") continue;
-      for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
-        keys.add(km[1]);
-      }
-    }
+    for (const occurrence of occurrences) keys.add(occurrence.key);
     const token = await this.revisionToken();
     this.loadedRevisionToken = token;
     return { keys, revisionToken: token };
+  }
+
+  async scanCitationOccurrences(): Promise<{ key: string; start: number; end: number }[]> {
+    const text = await this.readContent();
+    const occurrences: { key: string; start: number; end: number }[] = [];
+    for (const m of text.matchAll(PANDOC_CITE_RE)) {
+      const citationStart = m.index ?? 0;
+      const after = text[citationStart + m[0].length];
+      if (after === "(") continue;
+      for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
+        const matchStart = citationStart + (km.index ?? 0);
+        const atOffset = km[0].lastIndexOf("@");
+        const start = matchStart + atOffset;
+        occurrences.push({
+          key: km[1],
+          start,
+          end: start + km[1].length + 1,
+        });
+      }
+    }
+    return occurrences;
   }
 
   async writeBibliography(
