@@ -60,9 +60,13 @@ describe("audit manifest integration", () => {
       library: [entry("bibonly")],
     });
 
-    expect(output).toContain("Untracked markers");
+    // bib-only keys go into the dedicated bib report, NOT "Untracked markers
+    // in body" — keeping them separate prevents stale state entries surviving
+    // only in the generated bibliography from masking body/state mismatches.
+    expect(output).toContain("Bibliography contains keys not present in body");
     expect(output).toContain("@bibonly");
     expect(output).toContain("references.md");
+    expect(output).not.toContain("Untracked markers (in body but not in state)");
   });
 });
 

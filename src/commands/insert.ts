@@ -54,12 +54,19 @@ export function registerInsertCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts: InsertOptions) => {
       validateInsertOptions(opts);
-      if (opts.file && !opts.manifest) {
-        console.error(chalk.red("--file is only valid with --manifest"));
+      // Determine whether --file is appropriate BEFORE resolveSource so we
+      // produce the right error even when there's no doc resolvable. Honors
+      // both explicit --manifest and defaults.manifest (set via cite use).
+      const config = await loadConfig();
+      const fileExpectsManifest =
+        !!opts.manifest ||
+        (!opts.doc && !opts.markdown && !!config.defaults?.manifest);
+      if (opts.file && !fileExpectsManifest) {
+        console.error(chalk.red("--file is only valid when the active source is a manifest"));
         process.exit(1);
       }
-      if (opts.manifest && !opts.file) {
-        console.error(chalk.red("--file is required when using --manifest"));
+      if (fileExpectsManifest && !opts.file) {
+        console.error(chalk.red("--file is required when using a manifest source"));
         process.exit(1);
       }
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });

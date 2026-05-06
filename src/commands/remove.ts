@@ -356,6 +356,34 @@ async function removeFromManifest(
   opts: { key: string; dryRun: boolean; yes: boolean },
 ): Promise<void> {
   return await source.runWithLock(async () => {
+  // Pre-scan: detect presence in body, bib, and state. Mirrors single-file
+  // removeFromMarkdown's approach so a no-op key doesn't churn every file's
+  // mtime and a state-only stale entry still gets cleaned up.
+  const byFile = await source.findPresentCitationKeysByFile();
+  const bibPresent = await source.bibChild.findPresentCitationKeys();
+  const inBody = byFile.has(opts.key);
+  const inBib = bibPresent.keys.has(opts.key);
+  const stateCitation = docState.citations.find((c) => c.key === opts.key);
+
+  if (!inBody && !inBib && !stateCitation) {
+    console.log(`Key '${opts.key}' not found in any manifest file or state.`);
+    return;
+  }
+
+  console.log(chalk.bold("Will remove:"));
+  console.log(`  Citation key "${opts.key}"`);
+  console.log(`  Files containing the key: ${inBody ? byFile.get(opts.key)!.length : 0} body${inBib ? " + bib" : ""}`);
+  console.log(`  State cleanup: ${stateCitation ? "yes" : "no"}`);
+  if ((inBody || inBib) && !stateCitation) {
+    console.log(chalk.yellow(`Warning: Key "${opts.key}" appears in manifest files but is not tracked in state.`));
+  }
+  console.log("");
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("(dry-run mode — no changes made)"));
+    return;
+  }
+
   if (!opts.yes) {
     const ok = await confirm({
       message: "Remove this citation from manifest files and state?",
@@ -367,15 +395,19 @@ async function removeFromManifest(
     }
   }
 
-  if (opts.dryRun) {
-    console.log(chalk.dim("(dry-run mode — no changes made)"));
-    return;
-  }
+  let newRevisionToken: string | undefined;
+  let bodyOccurrencesRemoved = 0;
+  let changedFiles = 0;
+  let bracketsRewritten = 0;
+  let bracketsDeleted = 0;
 
-  const outcome = await source.removeCiteKey(opts.key);
-  if (outcome.bodyOccurrencesRemoved === 0) {
-    console.log(`No occurrences of [@${opts.key}] found in any manifest file.`);
-    return;
+  if (inBody || inBib) {
+    const outcome = await source.removeCiteKey(opts.key);
+    newRevisionToken = outcome.newRevisionToken;
+    bodyOccurrencesRemoved = outcome.bodyOccurrencesRemoved;
+    bracketsRewritten = outcome.bracketsRewritten;
+    bracketsDeleted = outcome.bracketsDeleted;
+    changedFiles = outcome.perFile.filter((item) => item.removed > 0).length;
   }
 
   const remainingCitations = docState.citations.filter((citation) => citation.key !== opts.key);
@@ -384,16 +416,19 @@ async function removeFromManifest(
 
   docState.citations = rebuildMarkdownCitations(keyOrder, remainingCitations, "remove-rebuild");
   docState.lastSync = new Date().toISOString();
-  docState.revisionId = outcome.newRevisionToken;
+  if (newRevisionToken) docState.revisionId = newRevisionToken;
   await saveDocState(docState);
 
   await logOperation(
     stateKey,
-    `REMOVE_MANIFEST key: ${opts.key}, removed ${outcome.bodyOccurrencesRemoved} occurrence(s), rewrote ${outcome.bracketsRewritten} bracket(s), deleted ${outcome.bracketsDeleted} bracket(s)`,
+    `REMOVE_MANIFEST key: ${opts.key}, removed ${bodyOccurrencesRemoved} occurrence(s), rewrote ${bracketsRewritten} bracket(s), deleted ${bracketsDeleted} bracket(s)`,
   );
 
-  const changedFiles = outcome.perFile.filter((item) => item.removed > 0).length;
-  console.log(chalk.green(`Removed [@${opts.key}] from ${changedFiles} file(s) (${outcome.bodyOccurrencesRemoved} occurrence(s)).`));
+  if (inBody || inBib) {
+    console.log(chalk.green(`Removed [@${opts.key}] from ${changedFiles} file(s) (${bodyOccurrencesRemoved} occurrence(s)).`));
+  } else {
+    console.log(chalk.green(`Removed stale state entry for '${opts.key}' (no body/bib occurrences).`));
+  }
   });
 }
 

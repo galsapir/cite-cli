@@ -48,7 +48,7 @@ describe("remove manifest integration", () => {
       library: [entry("kept")],
     });
 
-    expect(result.output).toContain("No occurrences of [@smith] found in any manifest file.");
+    expect(result.output).toContain("Key 'smith' not found in any manifest file or state.");
     expect(result.after).toEqual(result.before);
   });
 

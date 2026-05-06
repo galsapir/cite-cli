@@ -65,7 +65,7 @@ describe("insert manifest integration", () => {
 
   it("rejects --file without --manifest", async () => {
     const result = await runSingleFileExpectExit(["--markdown", join(env.workDir, "a.md"), "--file", join(env.workDir, "a.md"), "--after", "A.", "--key", "smith"]);
-    expect(result.errorOutput).toContain("--file is only valid with --manifest");
+    expect(result.errorOutput).toContain("--file is only valid when the active source is a manifest");
   });
 
   it("rejects --manifest without --file", async () => {
@@ -75,7 +75,7 @@ describe("insert manifest integration", () => {
       library: [entry("smith")],
     });
 
-    expect(result.errorOutput).toContain("--file is required when using --manifest");
+    expect(result.errorOutput).toContain("--file is required when using a manifest source");
   });
 });
 

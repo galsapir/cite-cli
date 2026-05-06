@@ -63,6 +63,10 @@ export function registerAuditCommand(program: Command): void {
       // Markdown gets its file path as title even when --offline.
       const presentCitationKeys = new Set<string>();
       let presentCitationKeysByFile = new Map<string, number[]>();
+      // Bib-only keys — present in the generated bibliography but not the
+      // body. Kept separate from presentCitationKeys so the body-vs-state
+      // checks aren't fooled by a stale bib still containing a deleted key.
+      let presentBibOnlyKeys = new Set<string>();
       let docTitle = source.kind === "markdown" ? source.describe() : "(offline mode)";
       if (source.kind === "markdown-manifest") docTitle = source.describe();
       let bodyChecked = false;
@@ -82,13 +86,7 @@ export function registerAuditCommand(program: Command): void {
                 presentCitationKeysByFile = await manifestSource.findPresentCitationKeysByFile();
                 for (const key of presentCitationKeysByFile.keys()) presentCitationKeys.add(key);
                 const bibPresent = await manifestSource.bibChild.findPresentCitationKeys();
-                for (const key of bibPresent.keys) {
-                  presentCitationKeys.add(key);
-                  const indices = presentCitationKeysByFile.get(key) ?? [];
-                  if (!manifestSource.bodyChildren.some((child) => child.filePath === manifestSource.bibChild.filePath)) {
-                    presentCitationKeysByFile.set(key, indices);
-                  }
-                }
+                presentBibOnlyKeys = new Set([...bibPresent.keys].filter((k) => !presentCitationKeys.has(k)));
               } else {
                 const present = await source.findPresentCitationKeys();
                 for (const k of present.keys) presentCitationKeys.add(k);
@@ -161,7 +159,6 @@ export function registerAuditCommand(program: Command): void {
             for (const key of untrackedInDoc) {
               const filePaths = presentCitationKeysByFile.get(key) ?? [];
               const labels = filePaths.map((idx) => manifestSource.bodyChildren[idx].filePath);
-              if (labels.length === 0) labels.push(manifestSource.bibChild.filePath);
               console.log(`  @${key} appears in ${labels.join(", ")} but is not tracked in state`);
             }
           } else {
@@ -177,6 +174,17 @@ export function registerAuditCommand(program: Command): void {
           console.log(
             `\n${chalk.yellow("Citations missing from doc body:")} ${missingFromDoc.join(", ")}`,
           );
+        }
+        if (source.kind === "markdown-manifest" && presentBibOnlyKeys.size > 0) {
+          // Informational: bib-only keys may be stale entries left in the
+          // generated bibliography after their body citations were deleted.
+          // Run 'cite bib --manifest' to regenerate the bib block.
+          const manifestSource = source as MultiMarkdownDocumentSource;
+          console.log(
+            `\n${chalk.dim("Bibliography contains keys not present in body:")} ` +
+            [...presentBibOnlyKeys].map((k) => `@${k}`).join(", "),
+          );
+          console.log(chalk.dim(`  (${manifestSource.bibChild.filePath} — re-run 'cite bib --manifest' to regenerate.)`));
         }
       }
 
