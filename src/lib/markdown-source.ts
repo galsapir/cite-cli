@@ -4,6 +4,7 @@
 import { readFile, writeFile, rename, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { resolve as resolvePath } from "node:path";
+import lockfile from "proper-lockfile";
 import { isAcademicUrl } from "./google-docs.js";
 import type {
   BibWriteOptions,
@@ -69,6 +70,38 @@ export class MarkdownAnchorNotFoundError extends Error {
   }
 }
 
+export class MarkdownLockTimeoutError extends Error {
+  constructor(filePath: string) {
+    super(
+      `Could not acquire lock on ${filePath} within timeout. Another 'cite' process may be running. ` +
+      `If you're sure no other process holds it, remove ${filePath}.cite.lock and re-run.`,
+    );
+    this.name = "MarkdownLockTimeoutError";
+  }
+}
+
+type LockRelease = () => Promise<void>;
+
+export async function acquireMarkdownLock(filePath: string): Promise<LockRelease> {
+  try {
+    return await lockfile.lock(filePath, {
+      stale: 30_000,
+      retries: { retries: 5, factor: 1.5, minTimeout: 100, maxTimeout: 1000 },
+      lockfilePath: `${filePath}.cite.lock`,
+      // Paths reaching here are already absolute (resolvePath in the source
+      // class). realpath: false skips symlink resolution AND lstat on the
+      // target — required because a manifest's bibliography file may not
+      // yet exist on disk when we lock (auto-created later by the bib write).
+      realpath: false,
+    });
+  } catch (err: any) {
+    if (/locked|ELOCKED/i.test(String(err?.code) + String(err?.message))) {
+      throw new MarkdownLockTimeoutError(filePath);
+    }
+    throw err;
+  }
+}
+
 export class MarkdownDocumentSource implements DocumentSource {
   readonly kind = "markdown" as const;
 
@@ -83,6 +116,15 @@ export class MarkdownDocumentSource implements DocumentSource {
 
   describe(): string {
     return `markdown:${this.filePath}`;
+  }
+
+  async runWithLock<T>(operation: () => Promise<T>): Promise<T> {
+    const release = await acquireMarkdownLock(this.filePath);
+    try {
+      return await operation();
+    } finally {
+      await release();
+    }
   }
 
   private async readContent(): Promise<string> {

@@ -347,6 +347,10 @@ export class GoogleDocsSource implements DocumentSource {
     return `google-doc:${this.docId}`;
   }
 
+  async runWithLock<T>(operation: () => Promise<T>): Promise<T> {
+    return await operation();
+  }
+
   private async fetch(): Promise<DocContent> {
     const doc = await fetchDoc(this.docId);
     this.cached = doc;

@@ -3,7 +3,7 @@
 
 import { access, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { MarkdownDocumentSource, type MarkdownCursor } from "./markdown-source.js";
+import { acquireMarkdownLock, MarkdownDocumentSource, type MarkdownCursor } from "./markdown-source.js";
 import type { Manifest } from "./manifest.js";
 import type {
   BibWriteOptions,
@@ -58,6 +58,29 @@ export class MultiMarkdownDocumentSource implements DocumentSource {
 
   describe(): string {
     return `markdown-manifest:${this.manifestPath}`;
+  }
+
+  async runWithLock<T>(operation: () => Promise<T>): Promise<T> {
+    const children = [...this.bodyChildren];
+    if (!children.some((child) => child.filePath === this.bibChild.filePath)) {
+      children.push(this.bibChild);
+    }
+
+    const releases: Array<() => Promise<void>> = [];
+    try {
+      for (const child of children) {
+        try {
+          releases.push(await acquireMarkdownLock(child.filePath));
+        } catch (err) {
+          for (const release of releases.reverse()) await release().catch(() => {});
+          releases.length = 0;
+          throw err;
+        }
+      }
+      return await operation();
+    } finally {
+      for (const release of releases.reverse()) await release().catch(() => {});
+    }
   }
 
   async revisionToken(): Promise<string> {

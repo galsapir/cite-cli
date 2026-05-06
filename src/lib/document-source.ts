@@ -54,6 +54,8 @@ export interface DocumentSource {
   readonly kind: DocumentSourceKind;
   /** Human-readable identifier for logs and error messages. */
   describe(): string;
+  /** Run a document operation under the backend's concurrency guard. */
+  runWithLock<T>(operation: () => Promise<T>): Promise<T>;
   /** Find pending academic-looking URLs that aren't yet citations. */
   loadAcademicReferences(): Promise<LoadRefsOutcome>;
   /** Replace each pending reference with an inline citation marker, in one atomic batch where possible. */
