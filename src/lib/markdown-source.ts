@@ -106,6 +106,11 @@ export class MarkdownDocumentSource implements DocumentSource {
     return computeToken(stats.mtimeMs, text);
   }
 
+  /** File content as last seen by this source — cached if a prior method has read it. */
+  async getContent(): Promise<string> {
+    return this.cachedContent ?? (await this.readContent());
+  }
+
   private async assertUnchangedSinceLoad(): Promise<void> {
     if (this.loadedRevisionToken === null) return;
     const fresh = await this.freshRevisionToken();
@@ -374,10 +379,14 @@ function computeToken(mtimeMs: number, content: string): string {
   return `${mtimeMs}-${hash}`;
 }
 
-/** Paragraph anchors are `\n\n`-delimited blocks; trailing delimiter newlines are outside paragraph text. */
+/**
+ * Paragraph anchors are blocks separated by one or more blank lines.
+ * Handles both LF and CRLF line endings. Trailing newlines are excluded
+ * from each paragraph's `end`.
+ */
 function markdownParagraphSpans(text: string): Array<{ start: number; end: number }> {
   const spans: Array<{ start: number; end: number }> = [];
-  const delimiterRe = /(?:\n[ \t]*){2,}/g;
+  const delimiterRe = /(?:\r?\n[ \t]*){2,}/g;
   let start = 0;
   for (const match of text.matchAll(delimiterRe)) {
     const delimiterStart = match.index ?? 0;
@@ -394,7 +403,11 @@ function markdownParagraphSpans(text: string): Array<{ start: number; end: numbe
 
 function trimTrailingParagraphNewlines(text: string, end: number): number {
   let trimmed = end;
-  while (trimmed > 0 && text[trimmed - 1] === "\n") trimmed--;
+  while (trimmed > 0) {
+    const ch = text[trimmed - 1];
+    if (ch !== "\n" && ch !== "\r") break;
+    trimmed--;
+  }
   return trimmed;
 }
 

@@ -165,6 +165,16 @@ describe("insert markdown integration", () => {
     expect(result.errorOutput).toContain("--paragraph");
     expect(result.markdownAfter).toBe("Hello world.\n");
   });
+
+  it("treats CRLF line endings as paragraph delimiters", async () => {
+    const result = await runInsert({
+      markdown: "First paragraph.\r\n\r\nSecond paragraph.\r\n",
+      args: ["--paragraph", "2", "--position", "end", "--key", "smith"],
+      library: [entry("smith")],
+    });
+
+    expect(result.markdownAfter).toBe("First paragraph.\r\n\r\nSecond paragraph.[@smith]\r\n");
+  });
 });
 
 interface InsertFixture {

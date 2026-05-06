@@ -1,7 +1,6 @@
 // ABOUTME: CLI command to insert inline citations into a document source.
 // ABOUTME: Google Docs uses numbered markers; markdown writes pandoc citation markers.
 
-import { readFile } from "node:fs/promises";
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
@@ -28,7 +27,7 @@ interface InsertOptions {
   after?: string;
   occurrence: string;
   paragraph?: string;
-  position: string;
+  position: "start" | "end";
   dryRun?: boolean;
   yes?: boolean;
 }
@@ -300,7 +299,7 @@ async function insertIntoMarkdown(
     throw err;
   }
 
-  const text = await readFile(source.filePath, "utf-8");
+  const text = await source.getContent();
   console.log("");
   console.log(formatMarkdownInsertPreview(text, offset, marker));
   console.log("");
@@ -392,7 +391,7 @@ function markdownAnchorFromOptions(opts: InsertOptions): MarkdownInsertAnchor {
   return {
     type: "paragraph",
     value: parseInt(opts.paragraph ?? "", 10),
-    position: opts.position as "start" | "end",
+    position: opts.position,
   };
 }
 
