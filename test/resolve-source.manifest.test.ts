@@ -1,5 +1,5 @@
 // ABOUTME: Verifies source resolution for markdown manifest inputs.
-// ABOUTME: Covers mutex behavior, init hints, and command guard errors.
+// ABOUTME: Covers mutex behavior, init hints, and Google-Docs-only guard errors.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { writeFile } from "node:fs/promises";
@@ -48,15 +48,6 @@ describe("resolveSource manifest support", () => {
     const resolved = await resolveSource({ manifest: manifestPath });
     const result = expectExit(() => requireGoogleDocsSource(resolved, "cmd"));
     expect(result.stderr).toContain("Error: 'cite cmd' is not yet manifest-aware.");
-    expect(result.stderr).toContain(`Manifest: ${manifestPath}`);
-  });
-
-  it("rejectManifestSource rejects manifest sources", async () => {
-    const manifestPath = await writeValidManifest();
-    const { resolveSource, rejectManifestSource } = await import("../src/lib/resolve-source.js");
-    const resolved = await resolveSource({ manifest: manifestPath });
-    const result = expectExit(() => rejectManifestSource(resolved, "cmd"));
-    expect(result.stderr).toContain("Error: 'cite cmd' does not yet support --manifest mode (Phase 2/3 of issue #20).");
     expect(result.stderr).toContain(`Manifest: ${manifestPath}`);
   });
 

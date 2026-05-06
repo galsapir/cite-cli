@@ -9,13 +9,14 @@ import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { formatReference } from "../lib/format.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { DocState } from "../types/index.js";
 import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
+import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
 
 export function registerRemoveCommand(program: Command): void {
   program
@@ -23,12 +24,12 @@ export function registerRemoveCommand(program: Command): void {
     .description("Remove a citation from a Google Doc and renumber remaining citations")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest to remove from")
     .requiredOption("--key <key>", "Citation key to remove")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolved, "remove");
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -40,6 +41,15 @@ export function registerRemoveCommand(program: Command): void {
 
       if (source.kind === "markdown") {
         await removeFromMarkdown(source as MarkdownDocumentSource, stateKey, docState, {
+          key: opts.key,
+          dryRun: Boolean(opts.dryRun),
+          yes: Boolean(opts.yes),
+        });
+        return;
+      }
+
+      if (source.kind === "markdown-manifest") {
+        await removeFromManifest(source as MultiMarkdownDocumentSource, stateKey, docState, {
           key: opts.key,
           dryRun: Boolean(opts.dryRun),
           yes: Boolean(opts.yes),
@@ -337,6 +347,54 @@ export function registerRemoveCommand(program: Command): void {
       );
       });
     });
+}
+
+async function removeFromManifest(
+  source: MultiMarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: { key: string; dryRun: boolean; yes: boolean },
+): Promise<void> {
+  return await source.runWithLock(async () => {
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: "Remove this citation from manifest files and state?",
+      default: false,
+    });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("(dry-run mode — no changes made)"));
+    return;
+  }
+
+  const outcome = await source.removeCiteKey(opts.key);
+  if (outcome.bodyOccurrencesRemoved === 0) {
+    console.log(`No occurrences of [@${opts.key}] found in any manifest file.`);
+    return;
+  }
+
+  const remainingCitations = docState.citations.filter((citation) => citation.key !== opts.key);
+  const occurrences = (await source.scanCitationOccurrences()).map((item) => item.occurrence);
+  const keyOrder = firstAppearanceKeyOrder(occurrences);
+
+  docState.citations = rebuildMarkdownCitations(keyOrder, remainingCitations, "remove-rebuild");
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = outcome.newRevisionToken;
+  await saveDocState(docState);
+
+  await logOperation(
+    stateKey,
+    `REMOVE_MANIFEST key: ${opts.key}, removed ${outcome.bodyOccurrencesRemoved} occurrence(s), rewrote ${outcome.bracketsRewritten} bracket(s), deleted ${outcome.bracketsDeleted} bracket(s)`,
+  );
+
+  const changedFiles = outcome.perFile.filter((item) => item.removed > 0).length;
+  console.log(chalk.green(`Removed [@${opts.key}] from ${changedFiles} file(s) (${outcome.bodyOccurrencesRemoved} occurrence(s)).`));
+  });
 }
 
 async function removeFromMarkdown(

@@ -4,10 +4,11 @@
 import { Command } from "commander";
 import chalk from "chalk";
 import { loadDocState } from "../lib/doc-state.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findAllCitationOccurrences } from "../lib/google-docs.js";
 import { formatAuthors, getYear } from "../lib/format.js";
+import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
 
 export function registerAuditCommand(program: Command): void {
   program
@@ -15,10 +16,10 @@ export function registerAuditCommand(program: Command): void {
     .description("Audit citations in a document")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest to audit")
     .option("--offline", "Audit using local state only (skip doc fetch)")
     .action(async (opts) => {
-      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolved, "audit");
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -61,7 +62,9 @@ export function registerAuditCommand(program: Command): void {
       // Body cross-check via the source's view of present cite-keys.
       // Markdown gets its file path as title even when --offline.
       const presentCitationKeys = new Set<string>();
+      let presentCitationKeysByFile = new Map<string, number[]>();
       let docTitle = source.kind === "markdown" ? source.describe() : "(offline mode)";
+      if (source.kind === "markdown-manifest") docTitle = source.describe();
       let bodyChecked = false;
       if (!opts.offline) {
         try {
@@ -73,8 +76,24 @@ export function registerAuditCommand(program: Command): void {
               presentCitationKeys.add(occ.key);
             }
           } else {
-            const present = await source.runWithLock(async () => await source.findPresentCitationKeys());
-            for (const k of present.keys) presentCitationKeys.add(k);
+            await source.runWithLock(async () => {
+              if (source.kind === "markdown-manifest") {
+                const manifestSource = source as MultiMarkdownDocumentSource;
+                presentCitationKeysByFile = await manifestSource.findPresentCitationKeysByFile();
+                for (const key of presentCitationKeysByFile.keys()) presentCitationKeys.add(key);
+                const bibPresent = await manifestSource.bibChild.findPresentCitationKeys();
+                for (const key of bibPresent.keys) {
+                  presentCitationKeys.add(key);
+                  const indices = presentCitationKeysByFile.get(key) ?? [];
+                  if (!manifestSource.bodyChildren.some((child) => child.filePath === manifestSource.bibChild.filePath)) {
+                    presentCitationKeysByFile.set(key, indices);
+                  }
+                }
+              } else {
+                const present = await source.findPresentCitationKeys();
+                for (const k of present.keys) presentCitationKeys.add(k);
+              }
+            });
           }
           bodyChecked = true;
         } catch {
@@ -136,12 +155,23 @@ export function registerAuditCommand(program: Command): void {
           (key) => !presentCitationKeys.has(key),
         );
         if (untrackedInDoc.length > 0) {
-          const formatted = untrackedInDoc.map((key) =>
-            source.kind === "markdown" ? `@${key}` : key,
-          );
-          console.log(
-            `\n${chalk.yellow("Untracked markers in doc:")} ${formatted.join(", ")}`,
-          );
+          if (source.kind === "markdown-manifest") {
+            const manifestSource = source as MultiMarkdownDocumentSource;
+            console.log(`\n${chalk.yellow("Untracked markers (in body but not in state):")}`);
+            for (const key of untrackedInDoc) {
+              const filePaths = presentCitationKeysByFile.get(key) ?? [];
+              const labels = filePaths.map((idx) => manifestSource.bodyChildren[idx].filePath);
+              if (labels.length === 0) labels.push(manifestSource.bibChild.filePath);
+              console.log(`  @${key} appears in ${labels.join(", ")} but is not tracked in state`);
+            }
+          } else {
+            const formatted = untrackedInDoc.map((key) =>
+              source.kind === "markdown" ? `@${key}` : key,
+            );
+            console.log(
+              `\n${chalk.yellow("Untracked markers in doc:")} ${formatted.join(", ")}`,
+            );
+          }
         }
         if (missingFromDoc.length > 0) {
           console.log(
