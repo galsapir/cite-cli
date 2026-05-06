@@ -29,6 +29,13 @@ export interface MarkdownCitationOccurrence {
   end: number;
 }
 
+export interface MarkdownCitationBracket {
+  start: number;
+  end: number;
+  content: string;
+  keys: string[];
+}
+
 const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
 const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 
@@ -174,6 +181,72 @@ export class MarkdownDocumentSource implements DocumentSource {
     return occurrences;
   }
 
+  async scanCitationBrackets(): Promise<MarkdownCitationBracket[]> {
+    const text = await this.readContent();
+    const brackets: MarkdownCitationBracket[] = [];
+    for (const m of text.matchAll(PANDOC_CITE_RE)) {
+      const start = m.index ?? 0;
+      const end = start + m[0].length;
+      if (text[end] === "(") continue;
+      const content = m[0].slice(1, -1);
+      const keys = citationKeysInText(content);
+      brackets.push({ start, end, content, keys });
+    }
+    const token = await this.revisionToken();
+    this.loadedRevisionToken = token;
+    return brackets;
+  }
+
+  async removeCiteKey(key: string): Promise<{
+    bodyOccurrencesRemoved: number;
+    bracketsRewritten: number;
+    bracketsDeleted: number;
+    newRevisionToken: string;
+  }> {
+    await this.assertUnchangedSinceLoad();
+    let text = this.cachedContent ?? (await this.readContent());
+    const brackets = await this.scanCitationBrackets();
+    let bodyOccurrencesRemoved = 0;
+    let bracketsRewritten = 0;
+    let bracketsDeleted = 0;
+
+    for (const bracket of [...brackets].reverse()) {
+      if (!bracket.keys.includes(key)) continue;
+
+      const segments = bracket.content.split(";");
+      const remainingSegments: string[] = [];
+      let removedFromBracket = 0;
+
+      for (const segment of segments) {
+        const segmentKeys = citationKeysInText(segment);
+        const matches = segmentKeys.filter((segmentKey) => segmentKey === key).length;
+        if (matches > 0) {
+          removedFromBracket += matches;
+        } else {
+          remainingSegments.push(segment.trim());
+        }
+      }
+
+      if (removedFromBracket === 0) continue;
+      bodyOccurrencesRemoved += removedFromBracket;
+
+      if (remainingSegments.length === 0) {
+        const deleteRange = citationBracketDeletionRange(text, bracket.start, bracket.end);
+        text = text.slice(0, deleteRange.start) + text.slice(deleteRange.end);
+        bracketsDeleted++;
+      } else {
+        text = text.slice(0, bracket.start + 1) + remainingSegments.join("; ") + text.slice(bracket.end - 1);
+        bracketsRewritten++;
+      }
+    }
+
+    await atomicWriteFile(this.filePath, text);
+    this.cachedContent = text;
+    const newRevisionToken = await this.revisionToken();
+    this.loadedRevisionToken = newRevisionToken;
+    return { bodyOccurrencesRemoved, bracketsRewritten, bracketsDeleted, newRevisionToken };
+  }
+
   async writeBibliography(
     bibText: string,
     options: BibWriteOptions,
@@ -225,6 +298,22 @@ async function atomicWriteFile(path: string, content: string): Promise<void> {
   const tmp = `${path}.cite.tmp.${process.pid}.${Date.now()}`;
   await writeFile(tmp, content, "utf-8");
   await rename(tmp, path);
+}
+
+function citationKeysInText(text: string): string[] {
+  const keys: string[] = [];
+  for (const km of text.matchAll(PANDOC_KEY_RE)) keys.push(km[1]);
+  return keys;
+}
+
+function citationBracketDeletionRange(
+  text: string,
+  start: number,
+  end: number,
+): { start: number; end: number } {
+  if (start > 0 && text[start - 1] === " ") return { start: start - 1, end };
+  if (end < text.length && text[end] === " ") return { start, end: end + 1 };
+  return { start, end };
 }
 
 interface MarkdownLink {
