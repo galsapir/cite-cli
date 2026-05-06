@@ -68,6 +68,35 @@ describe("bib manifest integration", () => {
     expect(refs).toContain("Adams, A. (2020). First paper. Journal A.");
     expect(refs).not.toContain("1. Adams A.");
   });
+
+  it("warns and leaves an existing bibliography untouched when no citations remain", async () => {
+    const refsBefore = "## References\n\n1. Old entry.\n";
+    const manifestPath = await writeProject({
+      body: "Body without citations.\n",
+      refs: refsBefore,
+      manifest: "files:\n  - body.md\nbibliography: references.md\n",
+    });
+    await initEmptyState(manifestPath);
+
+    const output = await runBibWithOutput(["--manifest", manifestPath, "-y"]);
+
+    expect(output).toContain(`Warning: The bibliography section in ${join(workDir, "references.md")} still contains entries from a previous run.`);
+    expect(output).toContain("No citations remain in the manuscript; the bibliography file was NOT modified automatically.");
+    await expect(readFile(join(workDir, "references.md"), "utf-8")).resolves.toBe(refsBefore);
+  });
+
+  it("does not warn when no citations remain and the bibliography file is missing", async () => {
+    const manifestPath = await writeProject({
+      body: "Body without citations.\n",
+      manifest: "files:\n  - body.md\nbibliography: references.md\n",
+    });
+    await initEmptyState(manifestPath);
+
+    const output = await runBibWithOutput(["--manifest", manifestPath, "-y"]);
+
+    expect(output).toContain("No citations in this document. Use 'cite scan' or 'cite insert' first.");
+    expect(output).not.toContain("bibliography file was NOT modified automatically");
+  });
 });
 
 async function writeProject(input: { body: string; refs?: string; manifest: string }): Promise<string> {
@@ -100,10 +129,22 @@ async function initStateAndLibrary(manifestPath: string): Promise<void> {
   await saveLibrary("library-1", [entry]);
 }
 
+async function initEmptyState(manifestPath: string): Promise<void> {
+  const { initDocStateForManifest } = await import("../src/lib/doc-state.js");
+  await initDocStateForManifest(manifestPath, "library-1", "vancouver");
+}
+
 async function runBib(args: string[]): Promise<void> {
+  await runBibWithOutput(args);
+}
+
+async function runBibWithOutput(args: string[]): Promise<string> {
+  const logs: string[] = [];
+  vi.spyOn(console, "log").mockImplementation((message = "") => { logs.push(String(message)); });
   const { registerBibCommand } = await import("../src/commands/bib.js");
   const program = new Command();
   program.exitOverride();
   registerBibCommand(program);
   await program.parseAsync(["node", "cite", "bib", ...args]);
+  return logs.join("\n");
 }

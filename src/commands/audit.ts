@@ -67,38 +67,38 @@ export function registerAuditCommand(program: Command): void {
       // body. Kept separate from presentCitationKeys so the body-vs-state
       // checks aren't fooled by a stale bib still containing a deleted key.
       let presentBibOnlyKeys = new Set<string>();
-      let docTitle = source.kind === "markdown" ? source.describe() : "(offline mode)";
-      if (source.kind === "markdown-manifest") docTitle = source.describe();
+      let docTitle = source.kind === "google-docs" ? "(offline mode)" : source.describe();
       let bodyChecked = false;
       if (!opts.offline) {
-        try {
-          if (source.kind === "google-docs") {
+        if (source.kind === "google-docs") {
+          try {
             // Single fetch — use the same doc payload for both title and body keys.
             const doc = await fetchDoc(stateKey);
             docTitle = doc.title;
             for (const occ of findAllCitationOccurrences(doc.namedRanges)) {
               presentCitationKeys.add(occ.key);
             }
-          } else {
-            await source.runWithLock(async () => {
-              if (source.kind === "markdown-manifest") {
-                const manifestSource = source as MultiMarkdownDocumentSource;
-                presentCitationKeysByFile = await manifestSource.findPresentCitationKeysByFile();
-                for (const key of presentCitationKeysByFile.keys()) presentCitationKeys.add(key);
-                const bibPresent = await manifestSource.bibChild.findPresentCitationKeys();
-                presentBibOnlyKeys = new Set([...bibPresent.keys].filter((k) => !presentCitationKeys.has(k)));
-              } else {
-                const present = await source.findPresentCitationKeys();
-                for (const k of present.keys) presentCitationKeys.add(k);
-              }
-            });
+            bodyChecked = true;
+          } catch {
+            console.log(
+              chalk.yellow("Could not fetch document. Using offline mode.\n"),
+            );
+            docTitle = "(could not fetch)";
           }
+        } else {
+          await source.runWithLock(async () => {
+            if (source.kind === "markdown-manifest") {
+              const manifestSource = source as MultiMarkdownDocumentSource;
+              presentCitationKeysByFile = await manifestSource.findPresentCitationKeysByFile();
+              for (const key of presentCitationKeysByFile.keys()) presentCitationKeys.add(key);
+              const bibPresent = await manifestSource.bibChild.findPresentCitationKeys();
+              presentBibOnlyKeys = new Set([...bibPresent.keys].filter((k) => !presentCitationKeys.has(k)));
+            } else {
+              const present = await source.findPresentCitationKeys();
+              for (const k of present.keys) presentCitationKeys.add(k);
+            }
+          });
           bodyChecked = true;
-        } catch {
-          console.log(
-            chalk.yellow("Could not fetch document. Using offline mode.\n"),
-          );
-          docTitle = "(could not fetch)";
         }
       }
 

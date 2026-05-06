@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
+import { access } from "node:fs/promises";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
@@ -355,15 +356,28 @@ async function removeFromManifest(
   docState: DocState,
   opts: { key: string; dryRun: boolean; yes: boolean },
 ): Promise<void> {
-  return await source.runWithLock(async () => {
+  const bibFileExists = await fileExists(source.bibChild.filePath);
+  const runWithLocks = bibFileExists
+    ? <T>(operation: () => Promise<T>): Promise<T> => source.runWithLock(operation)
+    : <T>(operation: () => Promise<T>): Promise<T> => runWithBodyLocks(source, operation);
+
+  return await runWithLocks(async () => {
   // Single body+bib scan covers presence-checking AND the post-remove rebuild
   // (occurrence ORDER is preserved when a key is removed; offsets shift but
   // firstAppearanceKeyOrder only cares about ordering). Avoids reading every
   // body file twice on cite remove --manifest.
   const bodyOccurrences = (await source.scanCitationOccurrences()).map((o) => o.occurrence);
-  const bibPresent = await source.bibChild.findPresentCitationKeys();
+  let bibKeys = new Set<string>();
+  try {
+    const bibPresent = bibFileExists
+      ? await source.bibChild.findPresentCitationKeys()
+      : { keys: new Set<string>() };
+    bibKeys = bibPresent.keys;
+  } catch (err: any) {
+    if (err.code !== "ENOENT") throw err;
+  }
   const inBody = bodyOccurrences.some((o) => o.key === opts.key);
-  const inBib = bibPresent.keys.has(opts.key);
+  const inBib = bibKeys.has(opts.key);
   const stateCitation = docState.citations.find((c) => c.key === opts.key);
 
   if (!inBody && !inBib && !stateCitation) {
@@ -404,7 +418,9 @@ async function removeFromManifest(
   let bracketsDeleted = 0;
 
   if (inBody || inBib) {
-    const outcome = await source.removeCiteKey(opts.key);
+    const outcome = bibFileExists
+      ? await source.removeCiteKey(opts.key)
+      : await removeCiteKeyFromManifestBodies(source, opts.key);
     newRevisionToken = outcome.newRevisionToken;
     bodyOccurrencesRemoved = outcome.bodyOccurrencesRemoved;
     bracketsRewritten = outcome.bracketsRewritten;
@@ -434,6 +450,60 @@ async function removeFromManifest(
     console.log(chalk.green(`Removed stale state entry for '${opts.key}' (no body/bib occurrences).`));
   }
   });
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (err: any) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
+}
+
+async function runWithBodyLocks<T>(
+  source: MultiMarkdownDocumentSource,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const runAt = async (index: number): Promise<T> => {
+    const child = source.bodyChildren[index];
+    if (!child) return await operation();
+    return await child.runWithLock(() => runAt(index + 1));
+  };
+  return await runAt(0);
+}
+
+async function removeCiteKeyFromManifestBodies(
+  source: MultiMarkdownDocumentSource,
+  key: string,
+): Promise<{
+  bodyOccurrencesRemoved: number;
+  bracketsRewritten: number;
+  bracketsDeleted: number;
+  newRevisionToken: string;
+  perFile: Array<{ fileIdx: number | "bib"; removed: number }>;
+}> {
+  let bodyOccurrencesRemoved = 0;
+  let bracketsRewritten = 0;
+  let bracketsDeleted = 0;
+  const perFile: Array<{ fileIdx: number | "bib"; removed: number }> = [];
+
+  for (const [fileIdx, child] of source.bodyChildren.entries()) {
+    const outcome = await child.removeCiteKey(key);
+    bodyOccurrencesRemoved += outcome.bodyOccurrencesRemoved;
+    bracketsRewritten += outcome.bracketsRewritten;
+    bracketsDeleted += outcome.bracketsDeleted;
+    perFile.push({ fileIdx, removed: outcome.bodyOccurrencesRemoved });
+  }
+
+  return {
+    bodyOccurrencesRemoved,
+    bracketsRewritten,
+    bracketsDeleted,
+    newRevisionToken: await source.revisionToken(),
+    perFile,
+  };
 }
 
 async function removeFromMarkdown(
