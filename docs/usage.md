@@ -2,29 +2,66 @@
 
 Full command reference for `cite`. Run `cite <command> --help` for option details.
 
-> **Tip:** Set an active source with `cite use --doc <ID>` (or `cite use --markdown <PATH>`) and the document-aware commands below will use it by default — no need to pass `--doc`/`--markdown` every time.
+> **Tip:** Set an active source with `cite use --doc <ID>`, `cite use --markdown <PATH>`, or `cite use --manifest <PATH>` and the document-aware commands below will use it by default — no need to pass the source flag every time.
 
 ## Backends
 
-`cite` operates on two kinds of documents. Most commands accept either:
+`cite` operates on three writing surfaces. Document-aware commands accept one of:
 
 - **`--doc <DOC_ID>`** — a Google Doc. Inline citations are tracked with named ranges + hyperlinks; the bibliography lives in a named range.
 - **`--markdown <PATH>`** — a local markdown file. Inline citations are pandoc-style `[@bibkey]` markers; the bibliography lives under a `## References` heading.
+- **`--manifest <PATH>`** — a multi-file markdown manuscript. Body files are listed in YAML; the bibliography lives in the configured target file.
 
-`scan`, `bib`, `init`, `use` support both. `insert`, `audit`, `refresh`, `remove` are Google-Docs-only today (markdown support tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)). `--doc` and `--markdown` are mutually exclusive on every command.
+`scan`, `bib`, `init`, `use`, `insert`, `audit`, `refresh`, and `remove` support all three surfaces. `--doc`, `--markdown`, and `--manifest` are mutually exclusive on every command.
+
+## Multi-file manifest
+
+A manifest turns several markdown files into one citation source. `cite scan` walks the body files in manifest order, dedupes references against the shared library, and writes each file atomically. See [manifest.md](manifest.md) for the full reference.
+
+Schema:
+
+```yaml
+files:
+  - 00-abstract.md
+  - 01-introduction.md
+  - 02-methods.md
+  - 03-results.md
+  - 04-discussion.md
+bibliography: references.md
+```
+
+Rules:
+
+- `files:` and `bibliography:` are required.
+- Paths resolve relative to the manifest directory.
+- `../` is allowed; absolute paths are rejected.
+- Duplicate body files are rejected.
+- Body files must exist; the bibliography file may not exist until `cite bib` creates it.
+
+Example:
+
+```bash
+cite init --manifest cite.manifest.yaml --library group/6466726 --style vancouver
+cite sync --library group/6466726 --collection preprint-cits
+cite use --manifest cite.manifest.yaml --collection preprint-cits
+cite scan
+cite bib
+cite audit
+```
 
 ## use
 
-Set or show the active source (Google Doc or markdown file) and collection for your working session.
+Set or show the active source (Google Doc, markdown file, or manifest) and collection for your working session.
 
 ```bash
 cite use --doc <DOC_ID> --collection my-paper        # set active Google Doc
 cite use --markdown docs/draft.md                    # set active markdown file
+cite use --manifest cite.manifest.yaml --collection my-paper  # set active manifest
 cite use                                             # show current context
 cite use --clear                                     # clear active source + collection
 ```
 
-Setting one of `--doc`/`--markdown` clears the other — only one source can be active at a time.
+Setting one of `--doc`/`--markdown`/`--manifest` clears the others — only one source can be active at a time.
 
 **Options:**
 
@@ -32,17 +69,19 @@ Setting one of `--doc`/`--markdown` clears the other — only one source can be 
 |------|-------------|
 | `--doc <id>` | Google Doc ID to work with |
 | `--markdown <path>` | Markdown file path to work with |
+| `--manifest <path>` | Markdown manifest path to work with |
 | `--collection <name>` | Default Zotero collection for new references |
 | `--clear` | Clear the active source and collection |
 
 ## scan
 
-Scan a Google Doc or markdown file for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks (or as `[text](url)` markdown links) while writing, then run `cite scan` to process them all.
+Scan a Google Doc, markdown file, or manifest for pasted reference URLs and convert them to formatted citations. This is the primary workflow: paste DOI/PubMed/PMC/arXiv/Nature URLs as hyperlinks (or as `[text](url)` markdown links) while writing, then run `cite scan` to process them all.
 
 ```bash
 cite scan                                # scan active source
 cite scan --doc <DOC_ID>                 # explicit Google Doc
 cite scan --markdown docs/draft.md       # explicit markdown file
+cite scan --manifest cite.manifest.yaml  # explicit manifest
 cite scan --dry-run                      # preview without writing
 cite scan --collection my-paper          # add new refs to a collection
 ```
@@ -62,7 +101,7 @@ cite scan --collection my-paper          # add new refs to a collection
 4. Replaces each link with a citation marker:
    - **Google Docs**: numeric `[N]` plus a named range and citation hyperlink for durability
    - **Markdown**: pandoc-style `[@bibkey]` (the key is durable across renumbering)
-5. **Markdown only**: writes are atomic (temp + rename) and abort with a clear error if the file changed on disk between load and write — you'll never silently lose edits made in another editor mid-scan
+5. **Markdown and manifest only**: writes are atomic (temp + rename) and abort with a clear error if a file changed on disk between load and write — you'll never silently lose edits made in another editor mid-scan
 
 **Options:**
 
@@ -70,6 +109,7 @@ cite scan --collection my-paper          # add new refs to a collection
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active source if not specified) |
 | `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--collection <name>` | Zotero collection for new references |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
@@ -130,15 +170,16 @@ cite search --tag review       # Filter by tag
 
 ## init
 
-Initialize a document — Google Doc or local markdown file — for citation management.
+Initialize a document — Google Doc, local markdown file, or manifest — for citation management.
 
 ```bash
 cite init --doc <DOC_ID>
 cite init --doc <DOC_ID> --style apa
 cite init --markdown docs/draft.md --library group/12345 --style vancouver
+cite init --manifest cite.manifest.yaml --library group/6466726 --style vancouver
 ```
 
-State is written to `~/.cite/docs/<key>.json`, where `<key>` is the Google Doc ID for `--doc` or `md_<sha1(absolute path)>` for `--markdown` — meaning two cwds that point at the same markdown file resolve to the same state record.
+State is written to `~/.cite/docs/<key>.json`, where `<key>` is the Google Doc ID for `--doc`, `md_<sha1(absolute path)>` for `--markdown`, or `mfst_<sha1(absolute manifest path)>` for `--manifest` — meaning two cwds that point at the same markdown file or manifest resolve to the same state record.
 
 **Options:**
 
@@ -146,14 +187,15 @@ State is written to `~/.cite/docs/<key>.json`, where `<key>` is the Google Doc I
 |------|-------------|
 | `--doc <id>` | Google Doc ID |
 | `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--library <id>` | Library ID (e.g. `group/12345`), defaults to config |
 | `--style <style>` | Citation style, defaults to `vancouver` |
 
-`--doc` and `--markdown` are mutually exclusive.
+`--doc`, `--markdown`, and `--manifest` are mutually exclusive.
 
 ## insert
 
-Insert an inline citation into a Google Doc. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
+Insert an inline citation into a Google Doc, markdown file, or one body file in a manifest.
 
 ```bash
 # Insert after specific text
@@ -167,6 +209,9 @@ cite insert --keys "harris2020,rajpurkar2023" --after "some text"
 
 # Preview only
 cite insert --key harris2020 --after "text" --dry-run
+
+# Manifest — scope the anchor to one body file
+cite insert --manifest cite.manifest.yaml --file 01-introduction.md --key harris2020 --after "some text"
 ```
 
 **Options:**
@@ -174,6 +219,9 @@ cite insert --key harris2020 --after "text" --dry-run
 | Flag | Description |
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
+| `--file <path>` | Body file target for `--manifest` inserts |
 | `--key <key>` | Single citation key |
 | `--keys <keys>` | Comma-separated citation keys |
 | `--after <text>` | Insert after first occurrence of this text |
@@ -185,7 +233,7 @@ cite insert --key harris2020 --after "text" --dry-run
 
 ## bib
 
-Generate or update the bibliography section in a Google Doc or markdown file.
+Generate or update the bibliography section in a Google Doc, markdown file, or manifest bibliography target.
 
 ```bash
 # Google Docs — first time, specify where to place it
@@ -197,11 +245,14 @@ cite bib
 # Markdown — bibliography lands under (or replaces) a `## References` heading
 cite bib --markdown docs/draft.md
 
+# Manifest — bibliography lands in the manifest's `bibliography:` file
+cite bib --manifest cite.manifest.yaml
+
 # Preview in a different style
 cite bib --style apa --dry-run
 ```
 
-In Google Docs, the bibliography is anchored by a named range and updated in-place on subsequent runs. In markdown, the bibliography lives under a level-2 `## References` heading; re-running `cite bib` rewrites that section in place without disturbing later sections (e.g. `## Appendix`). `--after` only applies on first-time placement in Google Docs.
+In Google Docs, the bibliography is anchored by a named range and updated in-place on subsequent runs. In markdown, the bibliography lives under a level-2 `## References` heading; re-running `cite bib` rewrites that section in place without disturbing later sections (e.g. `## Appendix`). In manifest mode, the same section is written to the `bibliography:` file. `--after` only applies on first-time placement in Google Docs.
 
 **Options:**
 
@@ -209,6 +260,7 @@ In Google Docs, the bibliography is anchored by a named range and updated in-pla
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active source if not specified) |
 | `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--style <style>` | Override citation style |
 | `--after <text>` | Insert bibliography after this text (Google Docs, first-time only) |
 | `--dry-run` | Preview without writing |
@@ -240,10 +292,11 @@ This is the bridge from a cite-cli'd Google Doc to the markdown workflow: export
 
 ## audit
 
-Audit citations in a Google Doc for consistency. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
+Audit citations in a Google Doc, markdown file, or manifest for consistency.
 
 ```bash
 cite audit
+cite audit --manifest cite.manifest.yaml
 cite audit --offline    # Audit local state only
 ```
 
@@ -258,11 +311,13 @@ Reports:
 | Flag | Description |
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--offline` | Audit local state only (skip doc fetch) |
 
 ## refresh
 
-Repair citations after document reorganization (copy/paste, paragraph moves). Google Docs only — markdown tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19).
+Repair citations after document reorganization (copy/paste, paragraph moves) across Google Docs, markdown, or manifest sources.
 
 ```bash
 cite refresh --dry-run   # preview changes
@@ -270,17 +325,18 @@ cite refresh             # apply
 ```
 
 This command:
-1. Reads all `cite:*` named ranges in the document
-2. Scans hyperlinks matching `cite-cli.local/ref/*` for pasted citations that lost their named ranges
-3. Reconstructs missing named ranges from hyperlinks
-4. Renumbers all citations in document order (first-appearance numbering)
-5. Rebuilds doc state
+1. Reads existing citation markers in the active source
+2. Reconstructs missing tracking state from durable markers
+3. Renumbers Google Docs citations in document order (first-appearance numbering)
+4. Rebuilds doc state
 
 **Options:**
 
 | Flag | Description |
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
 
@@ -349,10 +405,11 @@ Fetches entries from Zotero, merges by DOI and Zotero key, and preserves local-o
 
 ## remove
 
-Remove a citation from a Google Doc and renumber remaining citations. Markdown not yet supported (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)).
+Remove a citation from a Google Doc, markdown file, or manifest and renumber remaining citations.
 
 ```bash
 cite remove --key rajpurkar2023
+cite remove --manifest cite.manifest.yaml --key rajpurkar2023
 cite remove --key rajpurkar2023 --dry-run
 ```
 
@@ -361,9 +418,41 @@ cite remove --key rajpurkar2023 --dry-run
 | Flag | Description |
 |------|-------------|
 | `--doc <id>` | Google Doc ID (uses active doc if not specified) |
+| `--markdown <path>` | Markdown file path |
+| `--manifest <path>` | Markdown manifest path |
 | `--key <key>` | **(required)** Citation key to remove |
 | `--dry-run` | Preview without writing |
 | `-y, --yes` | Skip confirmation |
+
+After `cite remove`, run `cite bib` to regenerate the bibliography.
+
+## Configuration reference
+
+`~/.cite/config.yaml` stores credentials, active source defaults, and citation defaults.
+
+```yaml
+zotero:
+  apiKey: <your-api-key>           # required for Zotero sync; from cite auth zotero
+  userId: "<numeric-user-id>"      # your numeric Zotero user ID
+  defaultLibrary: <library-id>     # default --library when not specified
+
+google:
+  credentialsPath: ~/.cite/google-credentials.json   # set by cite auth google
+  tokenPath:       ~/.cite/google-token.json
+
+defaults:
+  doc:        <gdoc-id>            # active source via cite use --doc
+  markdown:   <abs path>           # active source via cite use --markdown
+  manifest:   <abs path>           # active source via cite use --manifest
+  collection: <name>               # default Zotero collection for new entries
+  style:      vancouver            # default citation style
+```
+
+Library ID grammar:
+
+- `local` — local-only library at `~/.cite/libraries/local.json`. Default if you skip `cite auth zotero`.
+- `user/<id>` — your personal Zotero library. `<id>` is your numeric Zotero user ID.
+- `group/<id>` — a Zotero group library. `<id>` is the numeric group ID.
 
 ## config
 
