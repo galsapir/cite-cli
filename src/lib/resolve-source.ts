@@ -55,17 +55,6 @@ export function requireGoogleDocsSource(
   }
 }
 
-export function rejectManifestSource(resolved: ResolvedSource, commandName: string): void {
-  if (resolved.source.kind === "markdown-manifest") {
-    const path = resolved.options.manifest ?? "(unknown)";
-    process.stderr.write(
-      `Error: 'cite ${commandName}' does not yet support --manifest mode (Phase 2/3 of issue #20).\n` +
-      `       Manifest: ${path}\n`,
-    );
-    process.exit(1);
-  }
-}
-
 /** Format the `cite init …` hint for the resolved source — used in not-initialized errors. */
 export function initHintForSource(resolved: ResolvedSource): string {
   if (resolved.source.kind === "markdown") {

@@ -1,9 +1,15 @@
 // ABOUTME: DocumentSource implementation that composes markdown files from a manifest.
-// ABOUTME: Reads body files in manifest order and keeps the bibliography target separate.
+// ABOUTME: Reads, scans, inserts, removes, and writes bibs across manifest children.
 
 import { access, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { acquireMarkdownLock, MarkdownDocumentSource, type MarkdownCursor } from "./markdown-source.js";
+import {
+  acquireMarkdownLock,
+  MarkdownDocumentSource,
+  type MarkdownCitationOccurrence,
+  type MarkdownCursor,
+  type MarkdownInsertAnchor,
+} from "./markdown-source.js";
 import type { Manifest } from "./manifest.js";
 import type {
   BibWriteOptions,
@@ -22,7 +28,12 @@ export interface MultiMarkdownCursor {
   child: MarkdownCursor;
 }
 
-export type { MarkdownCursor };
+export interface MultiCitationOccurrence {
+  fileIdx: number;
+  occurrence: MarkdownCitationOccurrence;
+}
+
+export type { MarkdownCitationOccurrence, MarkdownCursor, MarkdownInsertAnchor };
 
 export class ManifestChangedDuringRunError extends Error {
   constructor(message: string) {
@@ -35,6 +46,38 @@ export class ManifestPartialWriteError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ManifestPartialWriteError";
+  }
+}
+
+/**
+ * Cross-file occurrence handle format: `${fileIdx}:${childHandle}`. Phase 3
+ * audit/refresh/remove logic relies on this shape; insert builds it directly
+ * when recording new state. Centralized here so the contract has one home.
+ */
+export function multiHandle(fileIdx: number, childHandle: string): string {
+  return `${fileIdx}:${childHandle}`;
+}
+
+/**
+ * Sequentially apply `op` to each child. On the first failure, throw
+ * `ManifestPartialWriteError` naming the failed child and how many
+ * succeeded — matches the Phase 2 best-effort fail-fast model.
+ */
+async function fanOutPerChild<T>(
+  targets: Array<{ child: MarkdownDocumentSource; meta: T }>,
+  verb: string,
+  op: (target: { child: MarkdownDocumentSource; meta: T }) => Promise<void>,
+): Promise<void> {
+  let processed = 0;
+  for (const target of targets) {
+    try {
+      await op(target);
+      processed++;
+    } catch (err: any) {
+      throw new ManifestPartialWriteError(
+        `${verb} ${processed} of ${targets.length} files. Failed at ${target.child.filePath}: ${err.message}. Re-run; 'cite refresh' reconciles state.`,
+      );
+    }
   }
 }
 
@@ -117,6 +160,79 @@ export class MultiMarkdownDocumentSource implements DocumentSource {
     return { keys, revisionToken: await this.revisionToken() };
   }
 
+  async scanCitationOccurrences(): Promise<MultiCitationOccurrence[]> {
+    const out: MultiCitationOccurrence[] = [];
+    for (const [fileIdx, child] of this.bodyChildren.entries()) {
+      const occurrences = await child.scanCitationOccurrences();
+      for (const occurrence of occurrences) out.push({ fileIdx, occurrence });
+    }
+    return out;
+  }
+
+  async findPresentCitationKeysByFile(): Promise<Map<string, number[]>> {
+    const byKey = new Map<string, number[]>();
+    for (const [fileIdx, child] of this.bodyChildren.entries()) {
+      const outcome = await child.findPresentCitationKeys();
+      for (const key of outcome.keys) {
+        const indices = byKey.get(key) ?? [];
+        indices.push(fileIdx);
+        byKey.set(key, indices);
+      }
+    }
+    return byKey;
+  }
+
+  async removeCiteKey(key: string): Promise<{
+    bodyOccurrencesRemoved: number;
+    bracketsRewritten: number;
+    bracketsDeleted: number;
+    newRevisionToken: string;
+    perFile: Array<{ fileIdx: number | "bib"; removed: number }>;
+  }> {
+    const targets: Array<{ child: MarkdownDocumentSource; meta: number | "bib" }> = [
+      ...this.bodyChildren.map((child, idx) => ({ child, meta: idx as number | "bib" })),
+    ];
+    if (!this.bodyChildren.some((child) => child.filePath === this.bibChild.filePath)) {
+      targets.push({ child: this.bibChild, meta: "bib" as const });
+    }
+
+    let bodyOccurrencesRemoved = 0;
+    let bracketsRewritten = 0;
+    let bracketsDeleted = 0;
+    const perFile: Array<{ fileIdx: number | "bib"; removed: number }> = [];
+
+    await fanOutPerChild(targets, "Removed from", async ({ child, meta }) => {
+      const outcome = await child.removeCiteKey(key);
+      bodyOccurrencesRemoved += outcome.bodyOccurrencesRemoved;
+      bracketsRewritten += outcome.bracketsRewritten;
+      bracketsDeleted += outcome.bracketsDeleted;
+      perFile.push({ fileIdx: meta, removed: outcome.bodyOccurrencesRemoved });
+    });
+
+    return {
+      bodyOccurrencesRemoved,
+      bracketsRewritten,
+      bracketsDeleted,
+      newRevisionToken: await this.revisionToken(),
+      perFile,
+    };
+  }
+
+  async locateInsertionPointInFile(fileIdx: number, anchor: MarkdownInsertAnchor): Promise<number> {
+    const child = this.bodyChildren[fileIdx];
+    if (!child) {
+      throw new RangeError(`fileIdx ${fileIdx} out of bounds for bodyChildren (length ${this.bodyChildren.length}).`);
+    }
+    return child.locateInsertionPoint(anchor);
+  }
+
+  async writeInsertionInFile(fileIdx: number, offset: number, marker: string): Promise<{ newRevisionToken: string }> {
+    const child = this.bodyChildren[fileIdx];
+    if (!child) throw new RangeError(`fileIdx ${fileIdx} out of bounds.`);
+    await child.writeInsertion(offset, marker);
+    return { newRevisionToken: await this.revisionToken() };
+  }
+
   async writeScanResults(
     items: ScanWriteItem[],
     style: CitationStyle,
@@ -134,25 +250,18 @@ export class MultiMarkdownDocumentSource implements DocumentSource {
 
     const occurrenceHandles: Record<string, string[]> = {};
     const fileIdxs = [...byFile.keys()].sort((a, b) => a - b);
-    let written = 0;
-    for (const fileIdx of fileIdxs) {
-      const child = this.bodyChildren[fileIdx];
-      try {
-        const outcome = await child.writeScanResults(byFile.get(fileIdx)!, style, library);
-        for (const [key, childHandles] of Object.entries(outcome.occurrenceHandles)) {
-          if (!occurrenceHandles[key]) occurrenceHandles[key] = [];
-          for (const handle of childHandles) {
-            // Namespaces child handles as `${fileIdx}:${childHandle}` for cross-file uniqueness.
-            occurrenceHandles[key].push(`${fileIdx}:${handle}`);
-          }
-        }
-        written++;
-      } catch (err: any) {
-        throw new ManifestPartialWriteError(
-          `Wrote ${written} of ${fileIdxs.length} files. Failed at ${child.filePath}: ${err.message}. Re-run; 'cite refresh' reconciles state.`,
-        );
+    const targets = fileIdxs.map((fileIdx) => ({
+      child: this.bodyChildren[fileIdx],
+      meta: fileIdx,
+    }));
+
+    await fanOutPerChild(targets, "Wrote", async ({ child, meta: fileIdx }) => {
+      const outcome = await child.writeScanResults(byFile.get(fileIdx)!, style, library);
+      for (const [key, childHandles] of Object.entries(outcome.occurrenceHandles)) {
+        if (!occurrenceHandles[key]) occurrenceHandles[key] = [];
+        for (const handle of childHandles) occurrenceHandles[key].push(multiHandle(fileIdx, handle));
       }
-    }
+    });
 
     return { occurrenceHandles, newRevisionToken: await this.revisionToken() };
   }

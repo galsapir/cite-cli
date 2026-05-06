@@ -101,6 +101,93 @@ describe("MultiMarkdownDocumentSource", () => {
     expect([...out.keys].sort()).toEqual(["one", "three", "two"]);
   });
 
+  it("scans citation occurrences in manifest order across body files only", async () => {
+    await writeFileInDir("a.md", "A [@one] then [@two].\n");
+    await writeFileInDir("b.md", "B [@three].\n");
+    await writeFileInDir("references.md", "Bib [@ignored].\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\n  - references.md\nbibliography: references.md\n");
+
+    const out = await source.scanCitationOccurrences();
+
+    expect(out.map((item) => [item.fileIdx, item.occurrence.key])).toEqual([
+      [0, "one"],
+      [0, "two"],
+      [1, "three"],
+    ]);
+  });
+
+  it("maps present citation keys to body file indices", async () => {
+    await writeFileInDir("a.md", "A [@shared] [@one].\n");
+    await writeFileInDir("b.md", "B [@shared] [@two].\n");
+    await writeFileInDir("references.md", "Bib [@ignored].\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\n  - references.md\nbibliography: references.md\n");
+
+    const out = await source.findPresentCitationKeysByFile();
+
+    expect(out.get("shared")).toEqual([0, 1]);
+    expect(out.get("one")).toEqual([0]);
+    expect(out.get("two")).toEqual([1]);
+    expect(out.has("ignored")).toBe(false);
+  });
+
+  it("removes cite keys from body files and bibliography with per-file counts", async () => {
+    await writeFileInDir("a.md", "A [@drop] [@keep].\n");
+    await writeFileInDir("b.md", "B [@drop] and [@drop].\n");
+    await writeFileInDir("references.md", "Refs [@drop].\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\nbibliography: references.md\n");
+
+    const outcome = await source.removeCiteKey("drop");
+
+    expect(outcome.bodyOccurrencesRemoved).toBe(4);
+    expect(outcome.perFile).toEqual([
+      { fileIdx: 0, removed: 1 },
+      { fileIdx: 1, removed: 2 },
+      { fileIdx: "bib", removed: 1 },
+    ]);
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toBe("A [@keep].\n");
+    await expect(readFile(resolve(workDir, "b.md"), "utf-8")).resolves.toBe("B and.\n");
+    await expect(readFile(resolve(workDir, "references.md"), "utf-8")).resolves.toBe("Refs.\n");
+  });
+
+  it("reports partial remove writes with failure context", async () => {
+    await writeFileInDir("a.md", "A [@drop].\n");
+    await writeFileInDir("b.md", "B [@drop].\n");
+    await writeFileInDir("references.md", "Refs [@drop].\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\nbibliography: references.md\n");
+    source.bodyChildren[1].removeCiteKey = async () => {
+      throw new Error("simulated remove failure");
+    };
+
+    const write = source.removeCiteKey("drop");
+
+    await expect(write).rejects.toThrow(ManifestPartialWriteError);
+    await expect(write).rejects.toThrow(/Removed from 1 of 3 files\. Failed at .*b\.md: simulated remove failure/);
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toBe("A.\n");
+  });
+
+  it("throws RangeError for out-of-bounds insertion file indices", async () => {
+    await writeFileInDir("a.md", "A.\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+
+    await expect(source.locateInsertionPointInFile(1, { type: "after", value: "A." })).rejects.toThrow(RangeError);
+  });
+
+  it("writes insertions to the requested body file and updates composite revision", async () => {
+    await writeFileInDir("a.md", "A target.\n");
+    await writeFileInDir("b.md", "B target.\n");
+    await writeFileInDir("references.md", "Refs.\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\nbibliography: references.md\n");
+    const before = await source.revisionToken();
+
+    const offset = await source.locateInsertionPointInFile(1, { type: "after", value: "target." });
+    const outcome = await source.writeInsertionInFile(1, offset, "[@smith]");
+
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toBe("A target.\n");
+    await expect(readFile(resolve(workDir, "b.md"), "utf-8")).resolves.toBe("B target.[@smith]\n");
+    expect(outcome.newRevisionToken).toBe(await source.revisionToken());
+    expect(outcome.newRevisionToken).not.toBe(before);
+  });
+
   it("writes scan results to the correct body files", async () => {
     await writeFileInDir("a.md", "A [One](https://doi.org/10.1000/a).\n");
     await writeFileInDir("b.md", "B [Two](https://doi.org/10.1000/b).\n");

@@ -4,6 +4,7 @@
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
+import { resolve as resolvePath } from "node:path";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js";
@@ -11,17 +12,20 @@ import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { MarkdownAnchorNotFoundError } from "../lib/markdown-source.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, CslJson, DocState, LibraryEntry } from "../types/index.js";
 import type { MarkdownDocumentSource, MarkdownInsertAnchor } from "../lib/markdown-source.js";
+import { multiHandle, type MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
 
 interface InsertOptions {
   doc?: string;
   markdown?: string;
+  manifest?: string;
+  file?: string;
   key?: string;
   keys?: string;
   after?: string;
@@ -38,6 +42,8 @@ export function registerInsertCommand(program: Command): void {
     .description("Insert an inline citation into a document")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest to insert into")
+    .option("--file <path>", "Manifest body file to insert into")
     .option("--key <key>", "Citation key from library")
     .option("--keys <keys>", "Comma-separated citation keys")
     .option("--after <text>", "Insert after this search string (first occurrence)")
@@ -48,8 +54,22 @@ export function registerInsertCommand(program: Command): void {
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts: InsertOptions) => {
       validateInsertOptions(opts);
-      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolved, "insert");
+      // Determine whether --file is appropriate BEFORE resolveSource so we
+      // produce the right error even when there's no doc resolvable. Honors
+      // both explicit --manifest and defaults.manifest (set via cite use).
+      const config = await loadConfig();
+      const fileExpectsManifest =
+        !!opts.manifest ||
+        (!opts.doc && !opts.markdown && !!config.defaults?.manifest);
+      if (opts.file && !fileExpectsManifest) {
+        console.error(chalk.red("--file is only valid when the active source is a manifest"));
+        process.exit(1);
+      }
+      if (fileExpectsManifest && !opts.file) {
+        console.error(chalk.red("--file is required when using a manifest source"));
+        process.exit(1);
+      }
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -63,6 +83,11 @@ export function registerInsertCommand(program: Command): void {
 
       if (source.kind === "markdown") {
         await insertIntoMarkdown(source as MarkdownDocumentSource, stateKey, docState, opts, keys);
+        return;
+      }
+
+      if (source.kind === "markdown-manifest") {
+        await insertIntoManifest(source as MultiMarkdownDocumentSource, stateKey, docState, opts, keys);
         return;
       }
 
@@ -278,6 +303,98 @@ export function registerInsertCommand(program: Command): void {
       }
       });
     });
+}
+
+async function insertIntoManifest(
+  source: MultiMarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: InsertOptions,
+  keys: string[],
+): Promise<void> {
+  return await source.runWithLock(async () => {
+  const filePath = resolvePath(opts.file ?? "");
+  const fileIdx = source.bodyChildren.findIndex((child) => child.filePath === filePath);
+  if (fileIdx === -1) {
+    if (filePath === source.bibChild.filePath) {
+      console.error(chalk.red("Inserts into the bibliography aren't supported via --file. Use cite bib --manifest to regenerate."));
+      process.exit(1);
+    }
+    const available = source.bodyChildren.map((child) => `  - ${child.filePath}`).join("\n");
+    console.error(chalk.red(`File '${opts.file}' is not listed in the manifest's files:. Available body files:\n${available}`));
+    process.exit(1);
+  }
+
+  const anchor = markdownAnchorFromOptions(opts);
+  const location = markdownLocationFromOptions(opts);
+  const marker = `[@${keys.join("; @")}]`;
+  let offset: number;
+
+  try {
+    offset = await source.locateInsertionPointInFile(fileIdx, anchor);
+  } catch (err) {
+    if (err instanceof MarkdownAnchorNotFoundError) {
+      console.error(chalk.red(err.message));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const text = await source.bodyChildren[fileIdx].getContent();
+  console.log("");
+  console.log(formatMarkdownInsertPreview(text, offset, marker));
+  console.log("");
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("(dry-run mode — no changes made)"));
+    return;
+  }
+
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: "Insert this citation into markdown?",
+      default: true,
+    });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  const outcome = await source.writeInsertionInFile(fileIdx, offset, marker);
+  const handle = multiHandle(fileIdx, `${offset}+${marker.length}`);
+  const nextIndex = docState.citations.length > 0
+    ? Math.max(...docState.citations.map((citation) => citation.index)) + 1
+    : 1;
+  let added = 0;
+  for (const key of keys) {
+    const existing = docState.citations.find((entry) => entry.key === key);
+    if (existing) {
+      existing.namedRangeIds = [...(existing.namedRangeIds ?? []), handle];
+    } else {
+      docState.citations.push({
+        index: nextIndex + added,
+        key,
+        location,
+        namedRangeIds: [handle],
+      });
+      added++;
+    }
+  }
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = outcome.newRevisionToken;
+  await saveDocState(docState);
+
+  for (const key of keys) {
+    const citation = docState.citations.find((entry) => entry.key === key);
+    await logOperation(
+      stateKey,
+      `INSERT_MANIFEST [${citation?.index ?? "?"}] at ${fileIdx}:${offset} (key: ${key})`,
+    );
+  }
+
+  console.log(chalk.green(`✓ Inserted ${marker} at offset ${offset}`));
+  });
 }
 
 async function insertIntoMarkdown(

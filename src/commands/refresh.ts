@@ -15,12 +15,13 @@ import {
 } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, DocState } from "../types/index.js";
 import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
+import type { MultiMarkdownDocumentSource } from "../lib/multi-markdown-source.js";
 
 export function registerRefreshCommand(program: Command): void {
   program
@@ -28,11 +29,11 @@ export function registerRefreshCommand(program: Command): void {
     .description("Repair citations: reconstruct named ranges from hyperlinks and renumber in document order")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest to refresh")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolved, "refresh");
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -44,6 +45,14 @@ export function registerRefreshCommand(program: Command): void {
 
       if (source.kind === "markdown") {
         await refreshMarkdownSource(source as MarkdownDocumentSource, stateKey, docState, {
+          dryRun: Boolean(opts.dryRun),
+          yes: Boolean(opts.yes),
+        });
+        return;
+      }
+
+      if (source.kind === "markdown-manifest") {
+        await refreshManifestSource(source as MultiMarkdownDocumentSource, stateKey, docState, {
           dryRun: Boolean(opts.dryRun),
           yes: Boolean(opts.yes),
         });
@@ -320,6 +329,58 @@ export function registerRefreshCommand(program: Command): void {
       );
       });
     });
+}
+
+async function refreshManifestSource(
+  source: MultiMarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: { dryRun: boolean; yes: boolean },
+): Promise<void> {
+  return await source.runWithLock(async () => {
+  console.log(`Fetching ${source.describe()}...`);
+  const multiOccurrences = await source.scanCitationOccurrences();
+  const occurrences = multiOccurrences.map((item) => item.occurrence);
+  const keyOrder = firstAppearanceKeyOrder(occurrences);
+  const rebuilt = rebuildMarkdownCitations(keyOrder, docState.citations, "manifest-rebuild");
+  const dropped = docState.citations
+    .map((citation) => citation.key)
+    .filter((key) => !keyOrder.includes(key));
+  const added = keyOrder.filter(
+    (key) => !docState.citations.some((citation) => citation.key === key),
+  );
+
+  console.log(`  Citation markers: ${occurrences.length}`);
+  console.log(`  Body files: ${source.bodyChildren.length}`);
+
+  if (dropped.length > 0) console.log(chalk.yellow(`Warning: Dropped citations: ${dropped.join(", ")}`));
+  if (added.length > 0) console.log(chalk.yellow(`Warning: Added citations: ${added.join(", ")}`));
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("\n(dry-run mode — no changes made)"));
+    return;
+  }
+
+  if (!opts.yes) {
+    const ok = await confirm({ message: "Apply refresh?", default: true });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  docState.citations = rebuilt;
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = await source.revisionToken();
+  await saveDocState(docState);
+
+  await logOperation(
+    stateKey,
+    `REFRESH_MANIFEST: ${occurrences.length} markers, ${keyOrder.length} unique keys`,
+  );
+
+  console.log(chalk.green(`✓ Refreshed ${keyOrder.length} citation(s) from ${source.bodyChildren.length} body file(s).`));
+  });
 }
 
 async function refreshMarkdownSource(
