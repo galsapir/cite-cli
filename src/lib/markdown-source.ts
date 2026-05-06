@@ -1,5 +1,5 @@
 // ABOUTME: DocumentSource implementation backed by a local markdown file.
-// ABOUTME: Reads the file once per command run; writes apply edits via descending splice.
+// ABOUTME: Reads markdown once per command run and writes citation edits atomically.
 
 import { readFile, writeFile, rename, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -36,6 +36,16 @@ export interface MarkdownCitationBracket {
   keys: string[];
 }
 
+export interface MarkdownInsertAnchor {
+  type: "after" | "paragraph";
+  /** For "after": literal case-sensitive text; for "paragraph": 1-indexed paragraph number. */
+  value: string | number;
+  /** For "after": target occurrence, 1-indexed. Ignored for paragraph anchors. */
+  occurrence?: number;
+  /** For "paragraph": insertion at paragraph start or text end. Ignored for after anchors. */
+  position?: "start" | "end";
+}
+
 const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
 const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 /** Non-global variant of PANDOC_KEY_RE for finding the FIRST @-token in a segment. */
@@ -49,6 +59,13 @@ export class MarkdownChangedDuringRunError extends Error {
       `Re-run the command — your edits would otherwise be overwritten.`,
     );
     this.name = "MarkdownChangedDuringRunError";
+  }
+}
+
+export class MarkdownAnchorNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MarkdownAnchorNotFoundError";
   }
 }
 
@@ -87,6 +104,11 @@ export class MarkdownDocumentSource implements DocumentSource {
     const text = await readFile(this.filePath, "utf-8");
     const stats = await stat(this.filePath);
     return computeToken(stats.mtimeMs, text);
+  }
+
+  /** File content as last seen by this source — cached if a prior method has read it. */
+  async getContent(): Promise<string> {
+    return this.cachedContent ?? (await this.readContent());
   }
 
   private async assertUnchangedSinceLoad(): Promise<void> {
@@ -152,6 +174,57 @@ export class MarkdownDocumentSource implements DocumentSource {
     const token = await this.revisionToken();
     this.loadedRevisionToken = token;
     return { keys, revisionToken: token };
+  }
+
+  async locateInsertionPoint(anchor: MarkdownInsertAnchor): Promise<number> {
+    const text = this.cachedContent ?? (await this.readContent());
+    const token = await this.revisionToken();
+    this.loadedRevisionToken = token;
+
+    if (anchor.type === "after") {
+      const searchText = String(anchor.value);
+      const occurrence = anchor.occurrence ?? 1;
+      if (!Number.isInteger(occurrence) || occurrence < 1) {
+        throw new MarkdownAnchorNotFoundError(`Occurrence must be a positive integer; got ${occurrence}.`);
+      }
+
+      let from = 0;
+      for (let seen = 1; ; seen++) {
+        const index = text.indexOf(searchText, from);
+        if (index === -1) {
+          throw new MarkdownAnchorNotFoundError(
+            `Text "${searchText}" not found in markdown file at occurrence ${occurrence}.`,
+          );
+        }
+        if (seen === occurrence) return index + searchText.length;
+        from = index + searchText.length;
+      }
+    }
+
+    const paragraphNumber = Number(anchor.value);
+    if (!Number.isInteger(paragraphNumber) || paragraphNumber < 1) {
+      throw new MarkdownAnchorNotFoundError(`Paragraph must be a positive integer; got ${anchor.value}.`);
+    }
+    const paragraphs = markdownParagraphSpans(text);
+    const paragraph = paragraphs[paragraphNumber - 1];
+    if (!paragraph) {
+      throw new MarkdownAnchorNotFoundError(
+        `Paragraph ${paragraphNumber} not found in markdown file (${paragraphs.length} paragraph(s)).`,
+      );
+    }
+    return anchor.position === "start" ? paragraph.start : paragraph.end;
+  }
+
+  async writeInsertion(offset: number, marker: string): Promise<{ newRevisionToken: string }> {
+    await this.assertUnchangedSinceLoad();
+    const text = this.cachedContent ?? (await this.readContent());
+    const nextText = text.slice(0, offset) + marker + text.slice(offset);
+
+    await atomicWriteFile(this.filePath, nextText);
+    this.cachedContent = nextText;
+    const newRevisionToken = await this.revisionToken();
+    this.loadedRevisionToken = newRevisionToken;
+    return { newRevisionToken };
   }
 
   /**
@@ -304,6 +377,38 @@ export class MarkdownDocumentSource implements DocumentSource {
 function computeToken(mtimeMs: number, content: string): string {
   const hash = createHash("sha1").update(content).digest("hex").slice(0, 12);
   return `${mtimeMs}-${hash}`;
+}
+
+/**
+ * Paragraph anchors are blocks separated by one or more blank lines.
+ * Handles both LF and CRLF line endings. Trailing newlines are excluded
+ * from each paragraph's `end`.
+ */
+function markdownParagraphSpans(text: string): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = [];
+  const delimiterRe = /(?:\r?\n[ \t]*){2,}/g;
+  let start = 0;
+  for (const match of text.matchAll(delimiterRe)) {
+    const delimiterStart = match.index ?? 0;
+    if (delimiterStart > start) {
+      spans.push({ start, end: trimTrailingParagraphNewlines(text, delimiterStart) });
+    }
+    start = delimiterStart + match[0].length;
+  }
+  if (start < text.length) {
+    spans.push({ start, end: trimTrailingParagraphNewlines(text, text.length) });
+  }
+  return spans;
+}
+
+function trimTrailingParagraphNewlines(text: string, end: number): number {
+  let trimmed = end;
+  while (trimmed > 0) {
+    const ch = text[trimmed - 1];
+    if (ch !== "\n" && ch !== "\r") break;
+    trimmed--;
+  }
+  return trimmed;
 }
 
 /**

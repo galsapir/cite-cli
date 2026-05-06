@@ -1,27 +1,43 @@
-// ABOUTME: CLI command to insert inline citations into a Google Doc.
-// ABOUTME: Supports text search and paragraph-based insertion with auto-numbering.
+// ABOUTME: CLI command to insert inline citations into a document source.
+// ABOUTME: Google Docs uses numbered markers; markdown writes pandoc citation markers.
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
 import chalk from "chalk";
 import { loadDocState, saveDocState } from "../lib/doc-state.js";
-import { loadLibrary, findInLibrary } from "../lib/library.js";
+import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, findTextLocation, findParagraph } from "../lib/google-docs.js";
 import { batchUpdate } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
-import { sortRequestsReverseIndex, formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
+import { formatInsertPreview, logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
 import { loadConfig } from "../lib/config.js";
-import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
+import { MarkdownAnchorNotFoundError } from "../lib/markdown-source.js";
 import type { docs_v1 } from "googleapis";
-import type { CitationEntry, CslJson } from "../types/index.js";
+import type { CitationEntry, CslJson, DocState, LibraryEntry } from "../types/index.js";
+import type { MarkdownDocumentSource, MarkdownInsertAnchor } from "../lib/markdown-source.js";
 import { CITE_LINK_PREFIX, CITE_RANGE_PREFIX } from "../types/index.js";
+
+interface InsertOptions {
+  doc?: string;
+  markdown?: string;
+  key?: string;
+  keys?: string;
+  after?: string;
+  occurrence: string;
+  paragraph?: string;
+  position: "start" | "end";
+  dryRun?: boolean;
+  yes?: boolean;
+}
 
 export function registerInsertCommand(program: Command): void {
   program
     .command("insert")
-    .description("Insert an inline citation into a Google Doc")
+    .description("Insert an inline citation into a document")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
+    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
     .option("--key <key>", "Citation key from library")
     .option("--keys <keys>", "Comma-separated citation keys")
     .option("--after <text>", "Insert after this search string (first occurrence)")
@@ -30,48 +46,28 @@ export function registerInsertCommand(program: Command): void {
     .option("--position <pos>", "Position within paragraph: start or end", "end")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
-    .action(async (opts) => {
+    .action(async (opts: InsertOptions) => {
+      validateInsertOptions(opts);
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      requireGoogleDocsSource(resolved, "insert");
-      opts.doc = resolved.stateKey;
-      const docState = await loadDocState(opts.doc);
+      const { source, stateKey } = resolved;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
-        console.error(
-          chalk.red(
-            `Doc ${opts.doc} not initialized. Run 'cite init --doc ${opts.doc}' first.`,
-          ),
-        );
+        console.error(chalk.red(`Document not initialized. Run '${initHintForSource(resolved)}' first.`));
         process.exit(1);
       }
 
-      // Determine which keys to insert
-      const keys: string[] = [];
-      if (opts.keys) {
-        keys.push(...opts.keys.split(",").map((k: string) => k.trim()));
-      } else if (opts.key) {
-        keys.push(opts.key);
-      } else {
-        console.error(chalk.red("Provide --key or --keys."));
-        process.exit(1);
-      }
-
-      // Load library and validate keys exist
+      const keys = parseInsertKeys(opts);
       const library = await loadLibrary(docState.libraryId);
-      const cslEntries: CslJson[] = [];
-      for (const key of keys) {
-        const entry = library.find((e) => e.key === key);
-        if (!entry) {
-          console.error(
-            chalk.red(`Key "${key}" not found in library "${docState.libraryId}".`),
-          );
-          process.exit(1);
-        }
-        cslEntries.push(entry.csl);
+      const cslEntries = validateLibraryKeys(keys, library, docState.libraryId);
+
+      if (source.kind === "markdown") {
+        await insertIntoMarkdown(source as MarkdownDocumentSource, stateKey, docState, opts, keys);
+        return;
       }
 
       // Fetch the document
       console.log("Fetching document...");
-      const doc = await fetchDoc(opts.doc);
+      const doc = await fetchDoc(stateKey);
       console.log(`  Document: "${doc.title}" (rev: ${doc.revisionId.slice(0, 8)}...)`);
 
       // Check for concurrent edits since last operation
@@ -229,7 +225,7 @@ export function registerInsertCommand(program: Command): void {
       validateBatchRequests(requests, doc.body);
 
       // Execute
-      const replies = await batchUpdate(opts.doc, requests);
+      const replies = await batchUpdate(stateKey, requests);
 
       // Extract namedRangeIds from replies.
       // Replies array mirrors requests array: [insertReply, styleReply, ...namedRangeReplies]
@@ -262,7 +258,7 @@ export function registerInsertCommand(program: Command): void {
       // Log the operation
       for (const nc of newCitations) {
         await logOperation(
-          opts.doc,
+          stateKey,
           `INSERT [${nc.index}] at index ${insertIndex} (key: ${nc.key})`,
         );
       }
@@ -279,4 +275,139 @@ export function registerInsertCommand(program: Command): void {
         console.log(chalk.dim("  (auto-sync bibliography is enabled — run 'cite bib' to update)"));
       }
     });
+}
+
+async function insertIntoMarkdown(
+  source: MarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: InsertOptions,
+  keys: string[],
+): Promise<void> {
+  const anchor = markdownAnchorFromOptions(opts);
+  const location = markdownLocationFromOptions(opts);
+  const marker = `[@${keys.join("; @")}]`;
+  let offset: number;
+
+  try {
+    offset = await source.locateInsertionPoint(anchor);
+  } catch (err) {
+    if (err instanceof MarkdownAnchorNotFoundError) {
+      console.error(chalk.red(err.message));
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const text = await source.getContent();
+  console.log("");
+  console.log(formatMarkdownInsertPreview(text, offset, marker));
+  console.log("");
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("(dry-run mode — no changes made)"));
+    return;
+  }
+
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: "Insert this citation into markdown?",
+      default: true,
+    });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  // Markdown writes the marker verbatim at the resolved offset; anchor text controls spacing.
+  const result = await source.writeInsertion(offset, marker);
+  const occurrences = await source.scanCitationOccurrences();
+  const keyOrder = firstAppearanceKeyOrder(occurrences);
+
+  docState.citations = rebuildMarkdownCitations(keyOrder, docState.citations, location);
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = result.newRevisionToken;
+  await saveDocState(docState);
+
+  for (const key of keys) {
+    const citation = docState.citations.find((entry) => entry.key === key);
+    await logOperation(
+      stateKey,
+      `INSERT_MARKDOWN [${citation?.index ?? "?"}] at offset ${offset} (key: ${key})`,
+    );
+  }
+
+  console.log(chalk.green(`✓ Inserted ${marker} at offset ${offset}`));
+}
+
+function validateInsertOptions(opts: InsertOptions): void {
+  if (opts.key && opts.keys) {
+    console.error(chalk.red("Provide --key or --keys, not both."));
+    process.exit(1);
+  }
+  if (!opts.key && !opts.keys) {
+    console.error(chalk.red("Provide --key or --keys."));
+    process.exit(1);
+  }
+  if (Boolean(opts.after) === Boolean(opts.paragraph)) {
+    console.error(chalk.red("Provide exactly one of --after or --paragraph."));
+    process.exit(1);
+  }
+  if (opts.position !== "start" && opts.position !== "end") {
+    console.error(chalk.red("--position must be 'start' or 'end'."));
+    process.exit(1);
+  }
+}
+
+function parseInsertKeys(opts: InsertOptions): string[] {
+  const keys = opts.keys
+    ? opts.keys.split(",").map((key) => key.trim()).filter(Boolean)
+    : [opts.key?.trim() ?? ""].filter(Boolean);
+  if (keys.length === 0) {
+    console.error(chalk.red("Provide --key or --keys."));
+    process.exit(1);
+  }
+  return keys;
+}
+
+function validateLibraryKeys(keys: string[], library: LibraryEntry[], libraryId: string): CslJson[] {
+  const missing = keys.filter((key) => !library.some((entry) => entry.key === key));
+  if (missing.length > 0) {
+    console.error(chalk.red(`Key(s) not found in library "${libraryId}": ${missing.join(", ")}.`));
+    process.exit(1);
+  }
+  return keys.map((key) => library.find((entry) => entry.key === key)!.csl);
+}
+
+function markdownAnchorFromOptions(opts: InsertOptions): MarkdownInsertAnchor {
+  if (opts.after) {
+    return {
+      type: "after",
+      value: opts.after,
+      occurrence: parseInt(opts.occurrence, 10),
+    };
+  }
+  return {
+    type: "paragraph",
+    value: parseInt(opts.paragraph ?? "", 10),
+    position: opts.position,
+  };
+}
+
+function markdownLocationFromOptions(opts: InsertOptions): string {
+  if (opts.after) return `insert:--after=${opts.after}`;
+  return `insert:--paragraph=${opts.paragraph}:${opts.position}`;
+}
+
+function formatMarkdownInsertPreview(text: string, offset: number, marker: string): string {
+  const start = Math.max(0, offset - 40);
+  const end = Math.min(text.length, offset + 40);
+  const before = text.slice(start, offset).replace(/\n/g, "\\n");
+  const after = text.slice(offset, end).replace(/\n/g, "\\n");
+  return [
+    chalk.bold("Markdown insert preview:"),
+    `  ${before}${chalk.green(marker)}${after}`,
+    `  offset: ${offset}`,
+  ].join("\n");
 }
