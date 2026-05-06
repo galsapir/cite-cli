@@ -85,6 +85,7 @@ export function registerRemoveCommand(program: Command): void {
         return;
       }
 
+      return await source.runWithLock(async () => {
       if (!opts.yes) {
         const ok = await confirm({
           message: "Remove this citation and renumber?",
@@ -334,6 +335,7 @@ export function registerRemoveCommand(program: Command): void {
           `✓ Removed [${citation.index}] and renumbered ${higherCitations.length} citations`,
         ),
       );
+      });
     });
 }
 
@@ -343,6 +345,7 @@ async function removeFromMarkdown(
   docState: DocState,
   opts: { key: string; dryRun: boolean; yes: boolean },
 ): Promise<void> {
+  return await source.runWithLock(async () => {
   console.log(`Fetching ${source.describe()}...`);
   const brackets = await source.scanCitationBrackets();
   const affectedBrackets = brackets.filter((bracket) => bracket.keys.includes(opts.key));
@@ -394,4 +397,5 @@ async function removeFromMarkdown(
   );
 
   console.log(chalk.green(`✓ Removed '${opts.key}'`));
+  });
 }

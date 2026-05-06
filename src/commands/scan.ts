@@ -41,6 +41,7 @@ export function registerScanCommand(program: Command): void {
         process.exit(1);
       }
 
+      return await source.runWithLock(async () => {
       console.log(`Fetching ${source.describe()}...`);
       const loaded = await source.loadAcademicReferences();
       console.log(`  rev: ${loaded.revisionToken.slice(0, 8)}...`);
@@ -229,5 +230,6 @@ export function registerScanCommand(program: Command): void {
       if (docState.bibNamedRange) {
         console.log(chalk.dim("  → Run 'cite bib' to update the bibliography."));
       }
+      });
     });
 }

@@ -64,6 +64,7 @@ export function registerBibCommand(program: Command): void {
         return;
       }
 
+      return await source.runWithLock(async () => {
       if (!opts.yes) {
         const ok = await confirm({
           message: "Write bibliography to document?",
@@ -127,5 +128,6 @@ export function registerBibCommand(program: Command): void {
           `✓ Bibliography updated (${sortedCitations.length} entries, ${style} style)`,
         ),
       );
+      });
     });
 }

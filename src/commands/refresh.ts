@@ -53,6 +53,7 @@ export function registerRefreshCommand(program: Command): void {
       const library = await loadLibrary(docState.libraryId);
       const libraryKeys = new Set(library.map((e) => e.key));
 
+      return await source.runWithLock(async () => {
       console.log("Fetching document...");
       const doc = await fetchDoc(stateKey);
       console.log(`  Document: "${doc.title}"`);
@@ -317,6 +318,7 @@ export function registerRefreshCommand(program: Command): void {
           `✓ Refreshed ${validPositions.length} citation(s), repaired ${orphanedHyperlinks.length} orphaned link(s)`,
         ),
       );
+      });
     });
 }
 
@@ -326,6 +328,7 @@ async function refreshMarkdownSource(
   docState: DocState,
   opts: { dryRun: boolean; yes: boolean },
 ): Promise<void> {
+  return await source.runWithLock(async () => {
   console.log(`Fetching ${source.describe()}...`);
   const occurrences = await source.scanCitationOccurrences();
   const revisionToken = await source.revisionToken();
@@ -403,6 +406,7 @@ async function refreshMarkdownSource(
   );
 
   console.log(chalk.green(`\n✓ Refreshed ${keyOrder.length} citation(s)`));
+  });
 }
 
 function citationsEqual(left: CitationEntry[], right: CitationEntry[]): boolean {

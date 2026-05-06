@@ -73,7 +73,7 @@ export function registerAuditCommand(program: Command): void {
               presentCitationKeys.add(occ.key);
             }
           } else {
-            const present = await source.findPresentCitationKeys();
+            const present = await source.runWithLock(async () => await source.findPresentCitationKeys());
             for (const k of present.keys) presentCitationKeys.add(k);
           }
           bodyChecked = true;

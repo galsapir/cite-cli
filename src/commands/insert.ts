@@ -66,6 +66,7 @@ export function registerInsertCommand(program: Command): void {
         return;
       }
 
+      return await source.runWithLock(async () => {
       // Fetch the document
       console.log("Fetching document...");
       const doc = await fetchDoc(stateKey);
@@ -275,6 +276,7 @@ export function registerInsertCommand(program: Command): void {
       if (config.defaults?.autoSyncBib) {
         console.log(chalk.dim("  (auto-sync bibliography is enabled — run 'cite bib' to update)"));
       }
+      });
     });
 }
 
@@ -285,6 +287,7 @@ async function insertIntoMarkdown(
   opts: InsertOptions,
   keys: string[],
 ): Promise<void> {
+  return await source.runWithLock(async () => {
   const anchor = markdownAnchorFromOptions(opts);
   const location = markdownLocationFromOptions(opts);
   const marker = `[@${keys.join("; @")}]`;
@@ -340,6 +343,7 @@ async function insertIntoMarkdown(
   }
 
   console.log(chalk.green(`✓ Inserted ${marker} at offset ${offset}`));
+  });
 }
 
 function validateInsertOptions(opts: InsertOptions): void {
