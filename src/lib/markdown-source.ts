@@ -22,6 +22,13 @@ interface MarkdownCursor {
   end: number;
 }
 
+/** A single `@key` occurrence in document order with its character span. */
+export interface MarkdownCitationOccurrence {
+  key: string;
+  start: number;
+  end: number;
+}
+
 const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
 const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
 
@@ -138,9 +145,17 @@ export class MarkdownDocumentSource implements DocumentSource {
     return { keys, revisionToken: token };
   }
 
-  async scanCitationOccurrences(): Promise<{ key: string; start: number; end: number }[]> {
+  /**
+   * Walk the file and return every cite-key occurrence in document order.
+   *
+   * The `start`/`end` span covers `@key` only — it deliberately excludes a
+   * leading `-` (author-suppressed pandoc form) and the surrounding `[…]`.
+   * Callers that delete by this span need to consider the surrounding
+   * separators and bracket structure themselves.
+   */
+  async scanCitationOccurrences(): Promise<MarkdownCitationOccurrence[]> {
     const text = await this.readContent();
-    const occurrences: { key: string; start: number; end: number }[] = [];
+    const occurrences: MarkdownCitationOccurrence[] = [];
     for (const m of text.matchAll(PANDOC_CITE_RE)) {
       const citationStart = m.index ?? 0;
       const after = text[citationStart + m[0].length];

@@ -2,32 +2,15 @@
 // ABOUTME: Seeds temp citation state and libraries without touching the user's cite home.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setupCiteHome, type CiteHome } from "./helpers/cite-home.js";
 import type { CitationEntry, CitationStyle, LibraryEntry } from "../src/types/index.js";
 
-let workDir: string;
-let originalHome: string | undefined;
+let env: CiteHome;
 
-beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "cite-audit-md-"));
-  originalHome = process.env.HOME;
-  process.env.HOME = join(workDir, "home");
-  await mkdir(join(process.env.HOME, ".cite", "docs"), { recursive: true });
-  await mkdir(join(process.env.HOME, ".cite", "libraries"), { recursive: true });
-  vi.resetModules();
-});
-
-afterEach(async () => {
-  if (originalHome === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = originalHome;
-  }
-  vi.restoreAllMocks();
-  await rm(workDir, { recursive: true, force: true });
-});
+beforeEach(async () => { env = await setupCiteHome("cite-audit-md-"); });
+afterEach(async () => { await env.teardown(); });
 
 describe("audit markdown integration", () => {
   it("reports no warnings when state, body, and library match", async () => {
@@ -101,7 +84,7 @@ interface AuditFixture {
 }
 
 async function runAudit(fixture: AuditFixture): Promise<string> {
-  const markdownPath = join(workDir, "draft.md");
+  const markdownPath = join(env.workDir, "draft.md");
   await writeFile(markdownPath, fixture.markdown, "utf-8");
 
   const { initDocStateForMarkdown, saveDocState } = await import("../src/lib/doc-state.js");

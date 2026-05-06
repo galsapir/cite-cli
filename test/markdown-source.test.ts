@@ -104,6 +104,14 @@ describe("MarkdownDocumentSource", () => {
     expect([...out.keys]).toEqual(["battelino2019"]);
   });
 
+  it("scanCitationOccurrences also skips markdown link brackets", async () => {
+    const src = await withFile(
+      "Link [@torvalds](https://github.com/torvalds) then cite [@a] and [@b; @c].\n",
+    );
+    const occurrences = await src.scanCitationOccurrences();
+    expect(occurrences.map((o) => o.key)).toEqual(["a", "b", "c"]);
+  });
+
   it("appends a new bibliography section when none exists", async () => {
     const src = await withFile("# Paper\n\nBody.\n");
     const result = await src.writeBibliography(

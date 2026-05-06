@@ -19,13 +19,7 @@ import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, DocState } from "../types/index.js";
-import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
-
-interface MarkdownCitationOccurrence {
-  key: string;
-  start: number;
-  end: number;
-}
+import type { MarkdownCitationOccurrence, MarkdownDocumentSource } from "../lib/markdown-source.js";
 
 export function registerRefreshCommand(program: Command): void {
   program

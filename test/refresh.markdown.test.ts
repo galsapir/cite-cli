@@ -2,32 +2,15 @@
 // ABOUTME: Seeds temp citation state and markdown files without touching user data.
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setupCiteHome, type CiteHome } from "./helpers/cite-home.js";
 import type { CitationEntry, CitationStyle, LibraryEntry } from "../src/types/index.js";
 
-let workDir: string;
-let originalHome: string | undefined;
+let env: CiteHome;
 
-beforeEach(async () => {
-  workDir = await mkdtemp(join(tmpdir(), "cite-refresh-md-"));
-  originalHome = process.env.HOME;
-  process.env.HOME = join(workDir, "home");
-  await mkdir(join(process.env.HOME, ".cite", "docs"), { recursive: true });
-  await mkdir(join(process.env.HOME, ".cite", "libraries"), { recursive: true });
-  vi.resetModules();
-});
-
-afterEach(async () => {
-  if (originalHome === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = originalHome;
-  }
-  vi.restoreAllMocks();
-  await rm(workDir, { recursive: true, force: true });
-});
+beforeEach(async () => { env = await setupCiteHome("cite-refresh-md-"); });
+afterEach(async () => { await env.teardown(); });
 
 describe("refresh markdown integration", () => {
   it("leaves matching state unchanged without warnings", async () => {
@@ -127,7 +110,7 @@ interface RefreshResult {
 }
 
 async function runRefresh(fixture: RefreshFixture): Promise<RefreshResult> {
-  const markdownPath = join(workDir, "draft.md");
+  const markdownPath = join(env.workDir, "draft.md");
   await writeFile(markdownPath, fixture.markdown, "utf-8");
 
   const { initDocStateForMarkdown, loadDocState, saveDocState } = await import("../src/lib/doc-state.js");
