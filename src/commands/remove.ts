@@ -1,5 +1,5 @@
-// ABOUTME: CLI command to remove a citation from a Google Doc.
-// ABOUTME: Uses named ranges for reliable marker location and handles renumbering.
+// ABOUTME: CLI command to remove a citation from a document source.
+// ABOUTME: Google Docs uses named ranges + renumbering; markdown rewrites pandoc citation brackets.
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";
@@ -9,30 +9,41 @@ import { loadLibrary } from "../lib/library.js";
 import { fetchDoc, extractText, batchUpdate, findCitationOccurrences } from "../lib/google-docs.js";
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, checkRevisionId, validateBatchRequests } from "../lib/safety.js";
-import { resolveSource, requireGoogleDocsSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { formatReference } from "../lib/format.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
+import type { DocState } from "../types/index.js";
+import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
 
 export function registerRemoveCommand(program: Command): void {
   program
     .command("remove")
     .description("Remove a citation from a Google Doc and renumber remaining citations")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file (not yet supported — see issue #19)")
+    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
     .requiredOption("--key <key>", "Citation key to remove")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
       const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      requireGoogleDocsSource(resolved, "remove");
-      opts.doc = resolved.stateKey;
-      const docState = await loadDocState(opts.doc);
+      const { source, stateKey } = resolved;
+      const docState = await loadDocState(stateKey);
       if (!docState) {
         console.error(
-          chalk.red(`Doc ${opts.doc} not initialized.`),
+          chalk.red(`Document not initialized. Run '${initHintForSource(resolved)}' first.`),
         );
         process.exit(1);
+      }
+
+      if (source.kind === "markdown") {
+        await removeFromMarkdown(source as MarkdownDocumentSource, stateKey, docState, {
+          key: opts.key,
+          dryRun: Boolean(opts.dryRun),
+          yes: Boolean(opts.yes),
+        });
+        return;
       }
 
       const citation = docState.citations.find((c) => c.key === opts.key);
@@ -86,7 +97,7 @@ export function registerRemoveCommand(program: Command): void {
 
       // Fetch the document
       console.log("Fetching document...");
-      const doc = await fetchDoc(opts.doc);
+      const doc = await fetchDoc(stateKey);
 
       if (docState.revisionId && !checkRevisionId(docState.revisionId, doc.revisionId)) {
         console.log(
@@ -282,7 +293,7 @@ export function registerRemoveCommand(program: Command): void {
         // Pre-write safety validation
         validateBatchRequests(allRequests, doc.body);
 
-        const replies = await batchUpdate(opts.doc, allRequests);
+        const replies = await batchUpdate(stateKey, allRequests);
 
         // Extract new namedRangeIds for renumbered citations from replies
         for (let i = 0; i < allRequests.length; i++) {
@@ -313,7 +324,7 @@ export function registerRemoveCommand(program: Command): void {
       await saveDocState(docState);
 
       await logOperation(
-        opts.doc,
+        stateKey,
         `REMOVE [${citation.index}] (key: ${opts.key}), renumbered ${higherCitations.length} citations`,
       );
 
@@ -323,4 +334,63 @@ export function registerRemoveCommand(program: Command): void {
         ),
       );
     });
+}
+
+async function removeFromMarkdown(
+  source: MarkdownDocumentSource,
+  stateKey: string,
+  docState: DocState,
+  opts: { key: string; dryRun: boolean; yes: boolean },
+): Promise<void> {
+  console.log(`Fetching ${source.describe()}...`);
+  const brackets = await source.scanCitationBrackets();
+  const affectedBrackets = brackets.filter((bracket) => bracket.keys.includes(opts.key));
+  const stateCitation = docState.citations.find((citation) => citation.key === opts.key);
+
+  if (affectedBrackets.length === 0 && !stateCitation) {
+    console.log(`Key '${opts.key}' not found in document or state.`);
+    return;
+  }
+
+  console.log(chalk.bold("Will remove:"));
+  console.log(`  Citation key "${opts.key}"`);
+  console.log(`  Affected citation brackets: ${affectedBrackets.length}`);
+  console.log(`  State cleanup: ${stateCitation ? "yes" : "no"}`);
+  if (affectedBrackets.length > 0 && !stateCitation) {
+    console.log(chalk.yellow(`Warning: Key "${opts.key}" appears in the body but is not tracked in state.`));
+  }
+  console.log("");
+
+  if (opts.dryRun) {
+    console.log(chalk.dim("(dry-run mode — no changes made)"));
+    return;
+  }
+
+  if (!opts.yes) {
+    const ok = await confirm({
+      message: "Remove this citation from markdown and state?",
+      default: false,
+    });
+    if (!ok) {
+      console.log("Cancelled.");
+      return;
+    }
+  }
+
+  const result = await source.removeCiteKey(opts.key);
+  const remainingCitations = docState.citations.filter((citation) => citation.key !== opts.key);
+  const occurrences = await source.scanCitationOccurrences();
+  const keyOrder = firstAppearanceKeyOrder(occurrences);
+
+  docState.citations = rebuildMarkdownCitations(keyOrder, remainingCitations, "remove-rebuild");
+  docState.lastSync = new Date().toISOString();
+  docState.revisionId = result.newRevisionToken;
+  await saveDocState(docState);
+
+  await logOperation(
+    stateKey,
+    `REMOVE_MARKDOWN key: ${opts.key}, removed ${result.bodyOccurrencesRemoved} occurrence(s), rewrote ${result.bracketsRewritten} bracket(s), deleted ${result.bracketsDeleted} bracket(s)`,
+  );
+
+  console.log(chalk.green(`✓ Removed '${opts.key}'`));
 }

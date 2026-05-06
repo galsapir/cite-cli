@@ -16,10 +16,11 @@ import {
 import { formatInlineCitation } from "../lib/formatter.js";
 import { logOperation, validateBatchRequests } from "../lib/safety.js";
 import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
+import { firstAppearanceKeyOrder, rebuildMarkdownCitations } from "../lib/markdown-citation-state.js";
 import { CITE_RANGE_PREFIX, CITE_LINK_PREFIX } from "../types/index.js";
 import type { docs_v1 } from "googleapis";
 import type { CitationEntry, DocState } from "../types/index.js";
-import type { MarkdownCitationOccurrence, MarkdownDocumentSource } from "../lib/markdown-source.js";
+import type { MarkdownDocumentSource } from "../lib/markdown-source.js";
 
 export function registerRefreshCommand(program: Command): void {
   program
@@ -329,7 +330,7 @@ async function refreshMarkdownSource(
   const revisionToken = await source.revisionToken();
 
   const keyOrder = firstAppearanceKeyOrder(occurrences);
-  const rebuilt = rebuildMarkdownCitations(keyOrder, docState.citations);
+  const rebuilt = rebuildMarkdownCitations(keyOrder, docState.citations, "refresh");
   const dropped = docState.citations
     .map((citation) => citation.key)
     .filter((key) => !keyOrder.includes(key));
@@ -401,32 +402,6 @@ async function refreshMarkdownSource(
   );
 
   console.log(chalk.green(`\n✓ Refreshed ${keyOrder.length} citation(s)`));
-}
-
-function firstAppearanceKeyOrder(occurrences: MarkdownCitationOccurrence[]): string[] {
-  const keyOrder: string[] = [];
-  for (const occurrence of occurrences) {
-    if (!keyOrder.includes(occurrence.key)) keyOrder.push(occurrence.key);
-  }
-  return keyOrder;
-}
-
-function rebuildMarkdownCitations(
-  keyOrder: string[],
-  existingCitations: CitationEntry[],
-): CitationEntry[] {
-  return keyOrder.map((key, index) => {
-    const existing = existingCitations.find((citation) => citation.key === key);
-    const citation: CitationEntry = {
-      index: index + 1,
-      key,
-      location: existing?.location || "refresh",
-    };
-    if (existing?.namedRangeIds) {
-      citation.namedRangeIds = [...existing.namedRangeIds];
-    }
-    return citation;
-  });
 }
 
 function citationsEqual(left: CitationEntry[], right: CitationEntry[]): boolean {

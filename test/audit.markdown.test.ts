@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setupCiteHome, type CiteHome } from "./helpers/cite-home.js";
+import { citation, entry } from "./helpers/citation-fixtures.js";
 import type { CitationEntry, CitationStyle, LibraryEntry } from "../src/types/index.js";
 
 let env: CiteHome;
@@ -111,24 +112,3 @@ async function runAudit(fixture: AuditFixture): Promise<string> {
   return logs.join("\n");
 }
 
-function citation(index: number, key: string): CitationEntry {
-  return {
-    index,
-    key,
-    location: "test",
-  };
-}
-
-function entry(key: string): LibraryEntry {
-  return {
-    key,
-    addedAt: "2026-01-01T00:00:00.000Z",
-    csl: {
-      id: key,
-      type: "article-journal",
-      title: `Paper ${key}`,
-      author: [{ given: "Alice", family: "Adams" }],
-      issued: { "date-parts": [[2020]] },
-    },
-  };
-}
