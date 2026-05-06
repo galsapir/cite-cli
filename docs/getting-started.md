@@ -34,7 +34,76 @@ cite auth zotero
 
 Enter your API key and user ID when prompted. Credentials are saved to `~/.cite/config.yaml`.
 
-## 3. Set Up Google Docs API Access
+## 3. Your First Citation Workflow
+
+`cite` is markdown-first. Start with a manifest when the manuscript has multiple files; use single-file markdown for smaller drafts; use Google Docs when real-time collaboration matters.
+
+### Path A — multi-file markdown manifest
+
+Create body files and a bibliography target:
+
+```bash
+mkdir -p manuscript
+cd manuscript
+touch 00-abstract.md 01-introduction.md 02-methods.md 03-results.md 04-discussion.md
+cat > cite.manifest.yaml <<'EOF'
+files:
+  - 00-abstract.md
+  - 01-introduction.md
+  - 02-methods.md
+  - 03-results.md
+  - 04-discussion.md
+bibliography: references.md
+EOF
+```
+
+Initialize the manifest, sync the maintainer example group library, and set it as the active source. Replace `group/6466726` and `preprint-cits` with your own library and collection.
+
+```bash
+cite init --manifest cite.manifest.yaml --library group/6466726 --style vancouver
+cite sync --library group/6466726 --collection preprint-cits
+cite use --manifest cite.manifest.yaml --collection preprint-cits
+```
+
+Draft with academic URLs as markdown links:
+
+```bash
+cat >> 01-introduction.md <<'EOF'
+Khasentino et al. reported PHA-related findings [Khasentino](https://doi.org/10.1038/s41591-025-03888-0).
+
+Health-LLM is available on arXiv [Health-LLM](https://arxiv.org/abs/2401.06866).
+EOF
+```
+
+Process citations and bibliography:
+
+```bash
+cite scan
+cite bib
+cite audit
+```
+
+`cite scan` replaces the links with pandoc-style `[@bibkey]` markers. `cite bib` writes `references.md`. For the full manifest schema and gotchas, see [Manifest Reference](manifest.md).
+
+### Path B — single-file markdown
+
+Write in any editor (Obsidian, VS Code, vim, …). Paste DOI/PubMed/PMC/arXiv/Nature URLs as standard markdown links — `[Author](https://doi.org/...)` — while drafting, then run `cite scan` to convert them to pandoc-style `[@bibkey]` markers.
+
+```bash
+touch draft.md
+cite init --markdown draft.md --library group/6466726 --style vancouver
+cite use --markdown draft.md
+cite scan
+cite bib
+```
+
+`scan`, `bib`, `audit`, `refresh`, `remove`, and `insert` all work against markdown. `insert` needs an anchor such as `--after "some text"` or `--paragraph 5`.
+
+### Finding your Zotero group ID
+
+Open the group in the Zotero web UI and read the numeric ID from `zotero.org/groups/<id>/...`. To list groups from the API instead, use the curl recipe in [Manifest Reference → Library setup with a Zotero group](manifest.md#library-setup-with-a-zotero-group).
+
+## 4. Optional: Set Up Google Docs API Access
 
 cite reads and writes Google Docs through the Google Docs API. This requires a Google Cloud project with OAuth2 credentials.
 
@@ -79,27 +148,7 @@ cite auth google
 
 This opens a browser window for Google authorization. Sign in, approve access, and the token is saved automatically.
 
-## 4. Your First Citation Workflow
-
-`cite` works against either a Google Doc or a local markdown file. Pick whichever fits your writing setup; the rest of this guide shows the Google Docs walkthrough first, then a shorter markdown alternative.
-
-### Add some papers
-
-```bash
-# Add by DOI
-cite add "10.1038/s41586-020-2649-2"
-
-# Add by DOI (another)
-cite add "10.1056/NEJMra2301725"
-```
-
-### Check your library
-
-```bash
-cite search
-```
-
-### Path A — Google Docs
+### Google Docs workflow
 
 #### Initialize a Google Doc
 
@@ -110,7 +159,8 @@ https://docs.google.com/document/d/THIS_IS_THE_DOC_ID/edit
 ```
 
 ```bash
-cite init --doc <DOC_ID>
+cite init --doc <DOC_ID> --library group/6466726 --style vancouver
+cite use --doc <DOC_ID> --collection my-paper
 ```
 
 #### Insert citations
@@ -135,26 +185,6 @@ cite bib --doc <DOC_ID> --after "References"
 ```bash
 cite audit --doc <DOC_ID>
 ```
-
-### Path B — local markdown
-
-Write in any editor (Obsidian, VS Code, vim, …). Paste DOI/PubMed/PMC/arXiv/Nature URLs as standard markdown links — `[Author](https://doi.org/...)` — while drafting, then run `cite scan` to convert them to pandoc-style `[@bibkey]` markers.
-
-```bash
-# Initialize the markdown file as a cite-tracked source
-cite init --markdown docs/draft.md --library group/12345 --style vancouver
-
-# (optional) make it the active source so subsequent commands don't need --markdown
-cite use --markdown docs/draft.md
-
-# Convert pasted academic links to [@bibkey] markers
-cite scan
-
-# Generate / update the bibliography under a `## References` heading
-cite bib
-```
-
-`insert`, `audit`, `refresh`, and `remove` are not yet markdown-aware (tracked in [issue #19](https://github.com/galsapir/cite-cli/issues/19)). For a markdown-only workflow, `scan` and `bib` are typically all you need.
 
 To migrate an existing cite-cli'd Google Doc into the markdown workflow, use `cite export` — see [Usage Guide → export](usage.md#export).
 
