@@ -81,7 +81,7 @@ export function initHintForSource(resolved: ResolvedSource): string {
 
 /**
  * Build the right DocumentSource for a command run.
- * Precedence: explicit `--manifest` > explicit `--markdown` > explicit `--doc` > config `defaults.markdown` > config `defaults.doc`.
+ * Precedence: explicit `--manifest` > explicit `--markdown` > explicit `--doc` > config `defaults.manifest` > config `defaults.markdown` > config `defaults.doc`.
  */
 export async function resolveSource(opts: SourceResolveOptions): Promise<ResolvedSource> {
   const explicitSources = [opts.doc, opts.markdown, opts.manifest].filter(Boolean);
@@ -110,6 +110,17 @@ export async function resolveSource(opts: SourceResolveOptions): Promise<Resolve
   }
 
   const config = await loadConfig();
+  const activeManifest = config.defaults?.manifest;
+  if (!opts.doc && !opts.markdown && activeManifest) {
+    const manifest = await loadManifest(activeManifest);
+    const source = new MultiMarkdownDocumentSource(manifest);
+    return {
+      source,
+      stateKey: stateKeyForSource({ type: "markdown-manifest", manifestPath: source.manifestPath }),
+      options: { manifest: activeManifest },
+    };
+  }
+
   const activeMarkdown = config.defaults?.markdown;
   if (!opts.doc && activeMarkdown) {
     const source = new MarkdownDocumentSource(activeMarkdown);

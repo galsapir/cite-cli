@@ -1,12 +1,13 @@
 // ABOUTME: Verifies multi-file markdown DocumentSource composition.
-// ABOUTME: Covers revision tokens, cursor wrapping, and Phase 1A write guards.
+// ABOUTME: Covers revision tokens, cursor wrapping, and manifest-aware writes.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { loadManifest } from "../src/lib/manifest.js";
-import { MultiMarkdownDocumentSource, type MultiMarkdownCursor } from "../src/lib/multi-markdown-source.js";
+import { ManifestPartialWriteError, MultiMarkdownDocumentSource, type MultiMarkdownCursor } from "../src/lib/multi-markdown-source.js";
+import type { CitationStyle } from "../src/types/index.js";
 
 let workDir: string;
 
@@ -100,16 +101,112 @@ describe("MultiMarkdownDocumentSource", () => {
     expect([...out.keys].sort()).toEqual(["one", "three", "two"]);
   });
 
-  it("throws a Phase 1A deferral error for scan writes", async () => {
-    const source = await sourceFromManifest("files: []\nbibliography: references.md\n");
-    await expect(source.writeScanResults([], "vancouver", [])).rejects.toThrow(/Phase 1A|Phase 2/);
-    await expect(source.writeScanResults([], "vancouver", [])).rejects.toThrow(/issue #20/);
+  it("writes scan results to the correct body files", async () => {
+    await writeFileInDir("a.md", "A [One](https://doi.org/10.1000/a).\n");
+    await writeFileInDir("b.md", "B [Two](https://doi.org/10.1000/b).\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\nbibliography: references.md\n");
+    const loaded = await source.loadAcademicReferences();
+
+    const outcome = await source.writeScanResults(
+      [
+        { ref: loaded.refs[0], key: "one2024", index: 1 },
+        { ref: loaded.refs[1], key: "two2024", index: 2 },
+      ],
+      "vancouver" as CitationStyle,
+      [],
+    );
+
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toContain("[@one2024]");
+    await expect(readFile(resolve(workDir, "b.md"), "utf-8")).resolves.toContain("[@two2024]");
+    expect(outcome.occurrenceHandles.one2024[0]).toMatch(/^0:\d+\+\d+$/);
+    expect(outcome.occurrenceHandles.two2024[0]).toMatch(/^1:\d+\+\d+$/);
   });
 
-  it("throws a Phase 1A deferral error for bibliography writes", async () => {
-    const source = await sourceFromManifest("files: []\nbibliography: references.md\n");
-    await expect(source.writeBibliography("", {})).rejects.toThrow(/Phase 1A|Phase 2/);
-    await expect(source.writeBibliography("", {})).rejects.toThrow(/issue #20/);
+  it("returns the composite revision token after scan writes", async () => {
+    await writeFileInDir("a.md", "A [One](https://doi.org/10.1000/a).\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+    const loaded = await source.loadAcademicReferences();
+
+    const outcome = await source.writeScanResults(
+      [{ ref: loaded.refs[0], key: "one2024", index: 1 }],
+      "vancouver" as CitationStyle,
+      [],
+    );
+
+    expect(outcome.newRevisionToken).toBe(await source.revisionToken());
+  });
+
+  it("creates a missing bibliography file and writes the references section", async () => {
+    await writeFileInDir("a.md", "# A\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+
+    await source.writeBibliography("\n\n1. First ref.\n", {});
+
+    await expect(readFile(resolve(workDir, "references.md"), "utf-8")).resolves.toContain("## References\n\n1. First ref.");
+  });
+
+  it("respects bibliography edits made between read and write", async () => {
+    await writeFileInDir("a.md", "# A\n\nBody.\n");
+    await writeFileInDir("references.md", "# Old Title\n\n## References\n\n1. Old ref.\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+
+    // Phase 1: findPresentCitationKeys composes a revisionToken that reads
+    // the bib into bibChild.cachedContent (without setting loadedRevisionToken,
+    // since bib is excluded from the body walk). If the multi-source naively
+    // delegated to bibChild.writeBibliography, the stale cache would clobber
+    // any concurrent edit. With establishWritePrecondition the on-disk
+    // content is re-read fresh.
+    await source.findPresentCitationKeys();
+    await writeFile(
+      resolve(workDir, "references.md"),
+      "# UPDATED Title\n\nNew preamble.\n\n## References\n\n1. Old ref.\n",
+      "utf-8",
+    );
+
+    await source.writeBibliography("\n\n1. New ref.\n", {});
+
+    const after = await readFile(resolve(workDir, "references.md"), "utf-8");
+    // Preamble change must survive — proves we read fresh, not from stale cache.
+    expect(after).toContain("UPDATED Title");
+    expect(after).toContain("New preamble.");
+    expect(after).toContain("1. New ref.");
+    expect(after).not.toContain("Old Title");
+  });
+
+  it("replaces an existing bibliography section without touching body files", async () => {
+    await writeFileInDir("a.md", "# A\n\nBody.\n");
+    await writeFileInDir("references.md", "# Bibliography\n\n## References\n\n1. Old ref.\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+
+    const outcome = await source.writeBibliography("\n\n1. New ref.\n", {});
+
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toBe("# A\n\nBody.\n");
+    await expect(readFile(resolve(workDir, "references.md"), "utf-8")).resolves.toContain("1. New ref.");
+    await expect(readFile(resolve(workDir, "references.md"), "utf-8")).resolves.not.toContain("Old ref");
+    expect(outcome.newRevisionToken).toBe(await source.revisionToken());
+  });
+
+  it("reports partial scan writes with failure context", async () => {
+    await writeFileInDir("a.md", "A [One](https://doi.org/10.1000/a).\n");
+    await writeFileInDir("b.md", "B [Two](https://doi.org/10.1000/b).\n");
+    const source = await sourceFromManifest("files:\n  - a.md\n  - b.md\nbibliography: references.md\n");
+    const loaded = await source.loadAcademicReferences();
+    source.bodyChildren[1].writeScanResults = async () => {
+      throw new Error("simulated write failure");
+    };
+
+    const write = source.writeScanResults(
+      [
+        { ref: loaded.refs[0], key: "one2024", index: 1 },
+        { ref: loaded.refs[1], key: "two2024", index: 2 },
+      ],
+      "vancouver" as CitationStyle,
+      [],
+    );
+
+    await expect(write).rejects.toThrow(ManifestPartialWriteError);
+    await expect(write).rejects.toThrow(/Wrote 1 of 2 files\. Failed at .*b\.md: simulated write failure/);
+    await expect(readFile(resolve(workDir, "a.md"), "utf-8")).resolves.toContain("[@one2024]");
   });
 
   it("indexes bodyChildren when bibliography is listed under files", async () => {

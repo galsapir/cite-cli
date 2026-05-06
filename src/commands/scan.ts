@@ -10,7 +10,7 @@ import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import type { PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
@@ -28,12 +28,12 @@ export function registerScanCommand(program: Command): void {
     .description("Scan document for pasted reference URLs and convert to citations")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest file to operate on (instead of a Google Doc or single markdown file)")
     .option("--collection <name>", "Zotero collection to add new references to")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolvedSrc, "scan");
+      const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolvedSrc;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -180,8 +180,15 @@ export function registerScanCommand(program: Command): void {
       const outcome = await source.writeScanResults(writeItems, docState.style, allLibraryEntries);
 
       // Update doc state — fold occurrence handles into existing or new citations.
+      // outcome.occurrenceHandles is already keyed: each entry holds ALL handles
+      // for that key across this scan batch. Iterate by unique key so two refs
+      // resolving to the same key don't append the same handle list twice.
       const newCitations: CitationEntry[] = [];
+      const processedKeys = new Set<string>();
       for (const r of resolved) {
+        if (processedKeys.has(r.key)) continue;
+        processedKeys.add(r.key);
+
         const handles = outcome.occurrenceHandles[r.key] ?? [];
         const existing = docState.citations.find((c) => c.key === r.key);
         if (existing) {
@@ -189,7 +196,7 @@ export function registerScanCommand(program: Command): void {
             if (!existing.namedRangeIds) existing.namedRangeIds = [];
             existing.namedRangeIds.push(...handles);
           }
-        } else if (!newCitations.find((c) => c.key === r.key)) {
+        } else {
           newCitations.push({
             index: r.index,
             key: r.key,

@@ -1,7 +1,7 @@
 // ABOUTME: DocumentSource implementation that composes markdown files from a manifest.
 // ABOUTME: Reads body files in manifest order and keeps the bibliography target separate.
 
-import { readFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { MarkdownDocumentSource, type MarkdownCursor } from "./markdown-source.js";
 import type { Manifest } from "./manifest.js";
@@ -28,6 +28,13 @@ export class ManifestChangedDuringRunError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ManifestChangedDuringRunError";
+  }
+}
+
+export class ManifestPartialWriteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ManifestPartialWriteError";
   }
 }
 
@@ -88,26 +95,64 @@ export class MultiMarkdownDocumentSource implements DocumentSource {
   }
 
   async writeScanResults(
-    _items: ScanWriteItem[],
-    _style: CitationStyle,
-    _library: LibraryEntry[],
+    items: ScanWriteItem[],
+    style: CitationStyle,
+    library: LibraryEntry[],
   ): Promise<ScanWriteOutcome> {
-    throw new Error(
-      "MultiMarkdownDocumentSource.writeScanResults is not implemented in Phase 1A " +
-      "of issue #20. Manifest-aware scan ships in Phase 2; for now use " +
-      "'cite scan --markdown <single-file>' instead.",
-    );
+    const byFile = new Map<number, ScanWriteItem[]>();
+    for (const item of items) {
+      const cursor = item.ref.cursor as MultiMarkdownCursor;
+      if (!byFile.has(cursor.fileIdx)) byFile.set(cursor.fileIdx, []);
+      byFile.get(cursor.fileIdx)!.push({
+        ...item,
+        ref: { ...item.ref, cursor: cursor.child },
+      });
+    }
+
+    const occurrenceHandles: Record<string, string[]> = {};
+    const fileIdxs = [...byFile.keys()].sort((a, b) => a - b);
+    let written = 0;
+    for (const fileIdx of fileIdxs) {
+      const child = this.bodyChildren[fileIdx];
+      try {
+        const outcome = await child.writeScanResults(byFile.get(fileIdx)!, style, library);
+        for (const [key, childHandles] of Object.entries(outcome.occurrenceHandles)) {
+          if (!occurrenceHandles[key]) occurrenceHandles[key] = [];
+          for (const handle of childHandles) {
+            // Namespaces child handles as `${fileIdx}:${childHandle}` for cross-file uniqueness.
+            occurrenceHandles[key].push(`${fileIdx}:${handle}`);
+          }
+        }
+        written++;
+      } catch (err: any) {
+        throw new ManifestPartialWriteError(
+          `Wrote ${written} of ${fileIdxs.length} files. Failed at ${child.filePath}: ${err.message}. Re-run; 'cite refresh' reconciles state.`,
+        );
+      }
+    }
+
+    return { occurrenceHandles, newRevisionToken: await this.revisionToken() };
   }
 
   async writeBibliography(
-    _text: string,
-    _options: BibWriteOptions,
+    text: string,
+    options: BibWriteOptions,
   ): Promise<BibWriteOutcome> {
-    throw new Error(
-      "MultiMarkdownDocumentSource.writeBibliography is not implemented in Phase 1A " +
-      "of issue #20. Manifest-aware bibliography generation ships in Phase 2; for now use " +
-      "'cite bib --markdown <single-file>' instead.",
-    );
+    try {
+      await access(this.bibChild.filePath);
+    } catch (err: any) {
+      if (err.code !== "ENOENT") throw err;
+      await writeFile(this.bibChild.filePath, "", "utf-8");
+    }
+
+    // Bib is excluded from loadAcademicReferences / findPresentCitationKeys,
+    // so bibChild has no loadedRevisionToken from that side. revisionToken()
+    // populates cachedContent without setting it. Establish the write
+    // precondition explicitly so the delegated writeBibliography catches
+    // mid-run drift (a concurrent edit between the bib read and our write).
+    await this.bibChild.establishWritePrecondition();
+    const outcome = await this.bibChild.writeBibliography(text, options);
+    return { ...outcome, newRevisionToken: await this.revisionToken() };
   }
 }
 

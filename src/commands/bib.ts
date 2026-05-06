@@ -8,7 +8,7 @@ import { loadDocState, saveDocState } from "../lib/doc-state.js";
 import { loadLibrary } from "../lib/library.js";
 import { formatBibEntry, type CitationStyle } from "../lib/formatter.js";
 import { formatBibPreview, logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 
 export function registerBibCommand(program: Command): void {
   program
@@ -16,13 +16,13 @@ export function registerBibCommand(program: Command): void {
     .description("Generate or update the bibliography section in a document")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest file to operate on")
     .option("--style <style>", "Citation style override")
     .option("--after <text>", "Insert bibliography after this text (first time only; Google Docs only)")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolved, "bib");
+      const resolved = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolved;
       const docState = await loadDocState(stateKey);
       if (!docState) {
@@ -90,9 +90,14 @@ export function registerBibCommand(program: Command): void {
       const stateCitationKeys = new Set(docState.citations.map((c) => c.key));
       const missing = [...stateCitationKeys].filter((k) => !present.keys.has(k));
       if (missing.length > 0) {
-        const refreshHint = source.kind === "markdown"
-          ? `cite refresh --markdown ${opts.markdown ?? resolved.options.markdown}`
-          : `cite refresh --doc ${stateKey}`;
+        let refreshHint: string;
+        if (source.kind === "markdown") {
+          refreshHint = `cite refresh --markdown ${opts.markdown ?? resolved.options.markdown}`;
+        } else if (source.kind === "markdown-manifest") {
+          refreshHint = `cite refresh --manifest ${opts.manifest ?? resolved.options.manifest}`;
+        } else {
+          refreshHint = `cite refresh --doc ${stateKey}`;
+        }
         console.log(
           chalk.yellow(
             `Warning: ${missing.length} citation(s) tracked in state but missing from document body: ` +

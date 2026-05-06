@@ -119,6 +119,20 @@ export class MarkdownDocumentSource implements DocumentSource {
     }
   }
 
+  /**
+   * Force-refresh the cached content + revision baseline so the next
+   * mutating call asserts against current on-disk state. Required for
+   * write paths whose caller hasn't already invoked a "load" method
+   * (e.g. composing sources reading bib via revisionToken() but never
+   * scanning it).
+   */
+  async establishWritePrecondition(): Promise<void> {
+    this.cachedContent = null;
+    this.loadedRevisionToken = null;
+    await this.readContent();
+    this.loadedRevisionToken = await this.revisionToken();
+  }
+
   async loadAcademicReferences(): Promise<LoadRefsOutcome> {
     const text = await this.readContent();
     const refs: PendingReference[] = [];
