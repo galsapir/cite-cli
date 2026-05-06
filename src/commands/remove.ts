@@ -1,5 +1,5 @@
-// ABOUTME: CLI command to remove a citation from a Google Doc.
-// ABOUTME: Uses named ranges for reliable marker location and handles renumbering.
+// ABOUTME: CLI command to remove a citation from a document source.
+// ABOUTME: Google Docs uses named ranges + renumbering; markdown rewrites pandoc citation brackets.
 
 import { Command } from "commander";
 import { confirm } from "@inquirer/prompts";

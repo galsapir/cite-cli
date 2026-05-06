@@ -5,6 +5,7 @@ import { Command } from "commander";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { setupCiteHome, type CiteHome } from "./helpers/cite-home.js";
+import { citation, entry } from "./helpers/citation-fixtures.js";
 import type { CitationEntry, CitationStyle, LibraryEntry } from "../src/types/index.js";
 
 let env: CiteHome;
@@ -173,6 +174,38 @@ describe("remove markdown integration", () => {
     expect(result.markdownAfter).toBe("Link [@torvalds](https://github.com/torvalds) cite.\n");
     expect(result.after?.citations).toEqual([]);
   });
+
+  it("preserves segments where the target appears only as literal suffix text", async () => {
+    // Pandoc grammar: only the FIRST @key of a segment is the cite-key.
+    // In `[@a; @smith for @b context]`, @b is literal suffix text within
+    // the @smith segment — removing smith should drop only that segment,
+    // leaving the @a cite intact.
+    const result = await runRemove({
+      markdown: "See [@a; @smith for @b context] earlier.\n",
+      key: "smith",
+      citations: [citation(1, "a"), citation(2, "smith")],
+      library: [entry("a"), entry("smith")],
+    });
+
+    expect(result.markdownAfter).toBe("See [@a] earlier.\n");
+    expect(result.after?.citations).toEqual([citation(1, "a", "test")]);
+  });
+
+  it("does not touch a bracket where the target only appears as literal suffix text", async () => {
+    // `[@a; @b for @smith reason]` — smith is literal in @b's suffix.
+    // Removing smith must NOT drop the @b segment; the bracket is left alone.
+    const result = await runRemove({
+      markdown: "See [@a; @b for @smith reason] earlier.\n",
+      key: "smith",
+      citations: [citation(1, "a"), citation(2, "b"), citation(3, "smith")],
+      library: [entry("a"), entry("b"), entry("smith")],
+    });
+
+    // Body unchanged — smith is suffix text, not a cite-key in any segment.
+    expect(result.markdownAfter).toBe("See [@a; @b for @smith reason] earlier.\n");
+    // State entry for smith dropped; remaining cites renumber.
+    expect(result.after?.citations).toEqual([citation(1, "a", "test"), citation(2, "b", "test")]);
+  });
 });
 
 interface RemoveFixture {
@@ -227,24 +260,3 @@ async function executeRemove(markdownPath: string, key: string, dryRun = false):
   return logs.join("\n");
 }
 
-function citation(index: number, key: string, location = "test"): CitationEntry {
-  return {
-    index,
-    key,
-    location,
-  };
-}
-
-function entry(key: string): LibraryEntry {
-  return {
-    key,
-    addedAt: "2026-01-01T00:00:00.000Z",
-    csl: {
-      id: key,
-      type: "article-journal",
-      title: `Paper ${key}`,
-      author: [{ given: "Alice", family: "Adams" }],
-      issued: { "date-parts": [[2020]] },
-    },
-  };
-}

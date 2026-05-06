@@ -38,6 +38,8 @@ export interface MarkdownCitationBracket {
 
 const PANDOC_CITE_RE = /\[[^\]]*@[A-Za-z][A-Za-z0-9_:.-]*[^\]]*\]/g;
 const PANDOC_KEY_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/g;
+/** Non-global variant of PANDOC_KEY_RE for finding the FIRST @-token in a segment. */
+const PANDOC_KEY_FIRST_RE = /(?:^|[^A-Za-z0-9_])-?@([A-Za-z][A-Za-z0-9_:.-]*)/;
 
 /** Thrown when the file changed on disk between load and write. */
 export class MarkdownChangedDuringRunError extends Error {
@@ -155,34 +157,47 @@ export class MarkdownDocumentSource implements DocumentSource {
   /**
    * Walk the file and return every cite-key occurrence in document order.
    *
+   * Per pandoc grammar, only the FIRST `@key` (or `-@key`) of a `;`-separated
+   * segment is the cite-key; subsequent `@…` tokens in the segment are
+   * literal suffix text, not citations. We emit one occurrence per segment.
+   *
    * The `start`/`end` span covers `@key` only — it deliberately excludes a
    * leading `-` (author-suppressed pandoc form) and the surrounding `[…]`.
    * Callers that delete by this span need to consider the surrounding
    * separators and bracket structure themselves.
    */
   async scanCitationOccurrences(): Promise<MarkdownCitationOccurrence[]> {
-    const text = await this.readContent();
+    const text = this.cachedContent ?? (await this.readContent());
     const occurrences: MarkdownCitationOccurrence[] = [];
     for (const m of text.matchAll(PANDOC_CITE_RE)) {
       const citationStart = m.index ?? 0;
       const after = text[citationStart + m[0].length];
       if (after === "(") continue;
-      for (const km of m[0].matchAll(PANDOC_KEY_RE)) {
-        const matchStart = citationStart + (km.index ?? 0);
-        const atOffset = km[0].lastIndexOf("@");
-        const start = matchStart + atOffset;
-        occurrences.push({
-          key: km[1],
-          start,
-          end: start + km[1].length + 1,
-        });
+      const content = m[0].slice(1, -1);
+      const contentStart = citationStart + 1;
+      let segStart = 0;
+      for (let i = 0; i <= content.length; i++) {
+        if (i === content.length || content[i] === ";") {
+          const segText = content.slice(segStart, i);
+          const km = segText.match(PANDOC_KEY_FIRST_RE);
+          if (km && km.index !== undefined) {
+            const atOffset = km[0].lastIndexOf("@");
+            const start = contentStart + segStart + km.index + atOffset;
+            occurrences.push({
+              key: km[1],
+              start,
+              end: start + km[1].length + 1,
+            });
+          }
+          segStart = i + 1;
+        }
       }
     }
     return occurrences;
   }
 
   async scanCitationBrackets(): Promise<MarkdownCitationBracket[]> {
-    const text = await this.readContent();
+    const text = this.cachedContent ?? (await this.readContent());
     const brackets: MarkdownCitationBracket[] = [];
     for (const m of text.matchAll(PANDOC_CITE_RE)) {
       const start = m.index ?? 0;
@@ -204,8 +219,8 @@ export class MarkdownDocumentSource implements DocumentSource {
     newRevisionToken: string;
   }> {
     await this.assertUnchangedSinceLoad();
-    let text = this.cachedContent ?? (await this.readContent());
     const brackets = await this.scanCitationBrackets();
+    let text = this.cachedContent ?? (await this.readContent());
     let bodyOccurrencesRemoved = 0;
     let bracketsRewritten = 0;
     let bracketsDeleted = 0;
@@ -213,15 +228,17 @@ export class MarkdownDocumentSource implements DocumentSource {
     for (const bracket of [...brackets].reverse()) {
       if (!bracket.keys.includes(key)) continue;
 
+      // Pandoc grammar: each `;`-separated segment is one citation. The first
+      // `@key` (or `-@key`) of the segment is THE cite-key; any further
+      // `@…` tokens are literal suffix text. So a segment matches iff its
+      // primary key is the target.
       const segments = bracket.content.split(";");
       const remainingSegments: string[] = [];
       let removedFromBracket = 0;
 
       for (const segment of segments) {
-        const segmentKeys = citationKeysInText(segment);
-        const matches = segmentKeys.filter((segmentKey) => segmentKey === key).length;
-        if (matches > 0) {
-          removedFromBracket += matches;
+        if (primaryCiteKey(segment) === key) {
+          removedFromBracket += 1;
         } else {
           remainingSegments.push(segment.trim());
         }
@@ -304,6 +321,16 @@ function citationKeysInText(text: string): string[] {
   const keys: string[] = [];
   for (const km of text.matchAll(PANDOC_KEY_RE)) keys.push(km[1]);
   return keys;
+}
+
+/**
+ * Per pandoc grammar, the FIRST `@key` (or `-@key`) of a `;`-separated
+ * segment is the cite-key; subsequent `@…` tokens are literal suffix text.
+ * Returns null if the segment has no `@key` at all.
+ */
+function primaryCiteKey(segment: string): string | null {
+  const m = segment.match(PANDOC_KEY_FIRST_RE);
+  return m ? m[1] : null;
 }
 
 function citationBracketDeletionRange(
