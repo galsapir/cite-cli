@@ -44,11 +44,14 @@ export async function loadManifest(manifestPath: string): Promise<Manifest> {
   const fileEntries = files.map((entry, index) => validateFileEntry(entry, index, manifestDir));
   const bibEntry = validateRelativePath(bibliography, manifestDir);
   detectDuplicateFiles(fileEntries, abs);
-  await validateExistingFiles(fileEntries);
 
-  const bodyFilePaths = fileEntries
-    .map((entry) => entry.absPath)
-    .filter((filePath) => filePath !== bibEntry.absPath);
+  // Body files must exist; the bibliography file is allowed to be missing
+  // because `cite bib --manifest` auto-creates it on first run. This holds
+  // whether the bib appears in `files:` or stands alone.
+  const bodyEntries = fileEntries.filter((entry) => entry.absPath !== bibEntry.absPath);
+  await validateExistingFiles(bodyEntries);
+
+  const bodyFilePaths = bodyEntries.map((entry) => entry.absPath);
 
   return {
     manifestPath: abs,

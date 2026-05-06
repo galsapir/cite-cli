@@ -145,6 +145,34 @@ describe("MultiMarkdownDocumentSource", () => {
     await expect(readFile(resolve(workDir, "references.md"), "utf-8")).resolves.toContain("## References\n\n1. First ref.");
   });
 
+  it("respects bibliography edits made between read and write", async () => {
+    await writeFileInDir("a.md", "# A\n\nBody.\n");
+    await writeFileInDir("references.md", "# Old Title\n\n## References\n\n1. Old ref.\n");
+    const source = await sourceFromManifest("files:\n  - a.md\nbibliography: references.md\n");
+
+    // Phase 1: findPresentCitationKeys composes a revisionToken that reads
+    // the bib into bibChild.cachedContent (without setting loadedRevisionToken,
+    // since bib is excluded from the body walk). If the multi-source naively
+    // delegated to bibChild.writeBibliography, the stale cache would clobber
+    // any concurrent edit. With establishWritePrecondition the on-disk
+    // content is re-read fresh.
+    await source.findPresentCitationKeys();
+    await writeFile(
+      resolve(workDir, "references.md"),
+      "# UPDATED Title\n\nNew preamble.\n\n## References\n\n1. Old ref.\n",
+      "utf-8",
+    );
+
+    await source.writeBibliography("\n\n1. New ref.\n", {});
+
+    const after = await readFile(resolve(workDir, "references.md"), "utf-8");
+    // Preamble change must survive — proves we read fresh, not from stale cache.
+    expect(after).toContain("UPDATED Title");
+    expect(after).toContain("New preamble.");
+    expect(after).toContain("1. New ref.");
+    expect(after).not.toContain("Old Title");
+  });
+
   it("replaces an existing bibliography section without touching body files", async () => {
     await writeFileInDir("a.md", "# A\n\nBody.\n");
     await writeFileInDir("references.md", "# Bibliography\n\n## References\n\n1. Old ref.\n");

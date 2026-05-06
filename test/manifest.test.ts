@@ -132,9 +132,13 @@ describe("loadManifest", () => {
     expect(manifest.bibFilePath).toBe(resolve(workDir, "references.md"));
   });
 
-  it("errors when a listed bibliography file is missing", async () => {
+  it("allows missing bibliography file when also listed in files:", async () => {
+    // `cite bib --manifest` auto-creates the bib on first run, so the loader
+    // must accept its absence whether it's standalone or in files:.
     const manifestPath = await writeManifest("files:\n  - references.md\nbibliography: references.md\n");
-    await expect(loadManifest(manifestPath)).rejects.toThrow(/Manifest entry 'references\.md' resolves to .* does not exist/);
+    const manifest = await loadManifest(manifestPath);
+    expect(manifest.bibFilePath).toBe(resolve(workDir, "references.md"));
+    expect(manifest.bodyFilePaths).toEqual([]);
   });
 
   it("errors when files is not an array", async () => {

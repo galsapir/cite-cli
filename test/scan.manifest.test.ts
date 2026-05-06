@@ -62,6 +62,39 @@ describe("scan manifest integration", () => {
     await expect(readFile(join(workDir, "b.md"), "utf-8")).resolves.toContain("[@same2024]");
   });
 
+  it("does not duplicate handles when re-scanning a key that already exists in state", async () => {
+    // Two body files contain unprocessed URLs that resolve to a key already
+    // tracked in docState. The state-update loop must fold handles by key
+    // (not per-resolved-ref), or the existing citation accumulates duplicate
+    // ${fileIdx}:${handle} entries.
+    const manifestPath = await writeManifest({
+      a: "A [One](https://doi.org/10.1000/same).\n",
+      b: "B [Two](https://doi.org/10.1000/same).\n",
+      manifest: "files:\n  - a.md\n  - b.md\nbibliography: references.md\n",
+    });
+    const stateKey = await initManifestState(manifestPath);
+
+    // Pre-seed docState as if "same2024" were already tracked from a prior run.
+    const { loadDocState, saveDocState } = await import("../src/lib/doc-state.js");
+    const seeded = await loadDocState(stateKey);
+    seeded!.citations.push({
+      index: 1,
+      key: "same2024",
+      location: "manual",
+      namedRangeIds: ["pre-existing-handle"],
+    });
+    await saveDocState(seeded!);
+
+    await runScan(["--manifest", manifestPath, "-y"]);
+
+    const state = await loadDocState(stateKey);
+    expect(state?.citations).toHaveLength(1);
+    // Existing 1 handle + 2 new (one per body file) = 3 total. Without the
+    // dedupe guard this would be 1 + 4 (handles pushed twice).
+    expect(state?.citations[0].namedRangeIds).toHaveLength(3);
+    expect(state?.citations[0].namedRangeIds).toContain("pre-existing-handle");
+  });
+
   it("reports no URLs for an empty files manifest without writes", async () => {
     const manifestPath = join(workDir, "cite.manifest.yaml");
     await writeFile(manifestPath, "files: []\nbibliography: references.md\n", "utf-8");

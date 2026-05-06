@@ -145,6 +145,12 @@ export class MultiMarkdownDocumentSource implements DocumentSource {
       await writeFile(this.bibChild.filePath, "", "utf-8");
     }
 
+    // Bib is excluded from loadAcademicReferences / findPresentCitationKeys,
+    // so bibChild has no loadedRevisionToken from that side. revisionToken()
+    // populates cachedContent without setting it. Establish the write
+    // precondition explicitly so the delegated writeBibliography catches
+    // mid-run drift (a concurrent edit between the bib read and our write).
+    await this.bibChild.establishWritePrecondition();
     const outcome = await this.bibChild.writeBibliography(text, options);
     return { ...outcome, newRevisionToken: await this.revisionToken() };
   }

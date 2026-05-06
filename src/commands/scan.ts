@@ -180,8 +180,15 @@ export function registerScanCommand(program: Command): void {
       const outcome = await source.writeScanResults(writeItems, docState.style, allLibraryEntries);
 
       // Update doc state — fold occurrence handles into existing or new citations.
+      // outcome.occurrenceHandles is already keyed: each entry holds ALL handles
+      // for that key across this scan batch. Iterate by unique key so two refs
+      // resolving to the same key don't append the same handle list twice.
       const newCitations: CitationEntry[] = [];
+      const processedKeys = new Set<string>();
       for (const r of resolved) {
+        if (processedKeys.has(r.key)) continue;
+        processedKeys.add(r.key);
+
         const handles = outcome.occurrenceHandles[r.key] ?? [];
         const existing = docState.citations.find((c) => c.key === r.key);
         if (existing) {
@@ -189,7 +196,7 @@ export function registerScanCommand(program: Command): void {
             if (!existing.namedRangeIds) existing.namedRangeIds = [];
             existing.namedRangeIds.push(...handles);
           }
-        } else if (!newCitations.find((c) => c.key === r.key)) {
+        } else {
           newCitations.push({
             index: r.index,
             key: r.key,
