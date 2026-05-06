@@ -66,6 +66,56 @@ describe("resolveSource manifest support", () => {
     const resolved = await resolveSource({ manifest: manifestPath });
     expect(initHintForSource(resolved)).toBe(`cite init --manifest ${manifestPath}`);
   });
+
+  it("uses defaults.manifest when no explicit source is passed", async () => {
+    const manifestPath = await writeValidManifest();
+    const { updateConfig } = await import("../src/lib/config.js");
+    await updateConfig({ defaults: { manifest: manifestPath } });
+    const { resolveSource } = await import("../src/lib/resolve-source.js");
+
+    const resolved = await resolveSource({});
+
+    expect(resolved.source.kind).toBe("markdown-manifest");
+    expect(resolved.options.manifest).toBe(manifestPath);
+  });
+
+  it("prefers defaults.manifest over defaults.markdown", async () => {
+    const manifestPath = await writeValidManifest();
+    const markdownPath = join(env.workDir, "a.md");
+    const { updateConfig } = await import("../src/lib/config.js");
+    await updateConfig({ defaults: { manifest: manifestPath, markdown: markdownPath } });
+    const { resolveSource } = await import("../src/lib/resolve-source.js");
+
+    const resolved = await resolveSource({});
+
+    expect(resolved.source.kind).toBe("markdown-manifest");
+    expect(resolved.options.manifest).toBe(manifestPath);
+  });
+
+  it("lets explicit markdown override defaults.manifest", async () => {
+    const manifestPath = await writeValidManifest();
+    const markdownPath = join(env.workDir, "a.md");
+    const { updateConfig } = await import("../src/lib/config.js");
+    await updateConfig({ defaults: { manifest: manifestPath } });
+    const { resolveSource } = await import("../src/lib/resolve-source.js");
+
+    const resolved = await resolveSource({ markdown: markdownPath });
+
+    expect(resolved.source.kind).toBe("markdown");
+    expect(resolved.options.markdown).toBe(markdownPath);
+  });
+
+  it("lets explicit doc override defaults.manifest", async () => {
+    const manifestPath = await writeValidManifest();
+    const { updateConfig } = await import("../src/lib/config.js");
+    await updateConfig({ defaults: { manifest: manifestPath } });
+    const { resolveSource } = await import("../src/lib/resolve-source.js");
+
+    const resolved = await resolveSource({ doc: "doc-1" });
+
+    expect(resolved.source.kind).toBe("google-docs");
+    expect(resolved.options.doc).toBe("doc-1");
+  });
 });
 
 async function writeValidManifest(): Promise<string> {

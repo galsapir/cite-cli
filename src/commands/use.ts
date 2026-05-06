@@ -14,11 +14,12 @@ export function registerUseCommand(program: Command): void {
     .description("Set (or show) the active document and collection")
     .option("--doc <docId>", "Google Doc ID to work with")
     .option("--markdown <path>", "Markdown file to work with")
+    .option("--manifest <path>", "Markdown manifest file to work with")
     .option("--collection <name>", "Default Zotero collection for new references")
     .option("--clear", "Clear the active doc, markdown file, and collection")
     .action(async (opts) => {
-      if (opts.doc && opts.markdown) {
-        console.error(chalk.red("Pass either --doc or --markdown, not both."));
+      if ([opts.doc, opts.markdown, opts.manifest].filter(Boolean).length > 1) {
+        console.error(chalk.red("Pass at most one of --doc, --markdown, --manifest."));
         process.exit(1);
       }
 
@@ -31,6 +32,7 @@ export function registerUseCommand(program: Command): void {
             ...config.defaults,
             doc: undefined,
             markdown: undefined,
+            manifest: undefined,
             collection: undefined,
           },
         });
@@ -39,7 +41,7 @@ export function registerUseCommand(program: Command): void {
       }
 
       // Set mode — at least one option provided
-      if (opts.doc || opts.markdown || opts.collection) {
+      if (opts.doc || opts.markdown || opts.manifest || opts.collection) {
         const updates: Record<string, any> = { ...config.defaults };
 
         if (opts.doc) {
@@ -54,6 +56,7 @@ export function registerUseCommand(program: Command): void {
           }
           updates.doc = opts.doc;
           updates.markdown = undefined;
+          updates.manifest = undefined;
         }
 
         if (opts.markdown) {
@@ -70,6 +73,24 @@ export function registerUseCommand(program: Command): void {
           }
           updates.markdown = abs;
           updates.doc = undefined;
+          updates.manifest = undefined;
+        }
+
+        if (opts.manifest) {
+          const abs = resolvePath(opts.manifest);
+          const stateKey = stateKeyForSource({ type: "markdown-manifest", manifestPath: abs });
+          const docState = await loadDocState(stateKey);
+          if (!docState) {
+            console.error(
+              chalk.red(
+                `Manifest ${opts.manifest} not initialized. Run 'cite init --manifest ${opts.manifest}' first.`,
+              ),
+            );
+            process.exit(1);
+          }
+          updates.manifest = abs;
+          updates.doc = undefined;
+          updates.markdown = undefined;
         }
 
         if (opts.collection) {
@@ -80,6 +101,7 @@ export function registerUseCommand(program: Command): void {
 
         if (opts.doc) console.log(chalk.green(`✓ Active document: ${opts.doc}`));
         if (opts.markdown) console.log(chalk.green(`✓ Active markdown file: ${opts.markdown}`));
+        if (opts.manifest) console.log(chalk.green(`✓ Active manifest: ${opts.manifest}`));
         if (opts.collection) console.log(chalk.green(`✓ Active collection: ${opts.collection}`));
         return;
       }
@@ -87,12 +109,13 @@ export function registerUseCommand(program: Command): void {
       // Show mode — no options, display current state
       const docId = config.defaults?.doc;
       const markdown = config.defaults?.markdown;
+      const manifest = config.defaults?.manifest;
       const collection = config.defaults?.collection;
       const style = config.defaults?.style;
 
-      if (!docId && !markdown && !collection) {
+      if (!docId && !markdown && !manifest && !collection) {
         console.log(chalk.dim("No active document or collection set."));
-        console.log(chalk.dim("Use: cite use --doc <DOC_ID>  OR  cite use --markdown <PATH>"));
+        console.log(chalk.dim("Use: cite use --doc <DOC_ID>  OR  cite use --markdown <PATH>  OR  cite use --manifest <PATH>"));
         return;
       }
 
@@ -124,11 +147,22 @@ export function registerUseCommand(program: Command): void {
         }
       }
 
+      if (manifest) {
+        const stateKey = stateKeyForSource({ type: "markdown-manifest", manifestPath: manifest });
+        const docState = await loadDocState(stateKey);
+        console.log(`Manifest:   ${chalk.cyan(manifest)}`);
+        if (docState) {
+          console.log(`Library:    ${docState.libraryId}`);
+          console.log(`Style:      ${docState.style}`);
+          console.log(`Citations:  ${docState.citations.length}`);
+        }
+      }
+
       if (collection) {
         console.log(`Collection: ${chalk.cyan(collection)}`);
       }
 
-      if (style && !docId && !markdown) {
+      if (style && !docId && !markdown && !manifest) {
         console.log(`Style:      ${style}`);
       }
     });

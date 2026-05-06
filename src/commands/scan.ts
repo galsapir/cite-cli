@@ -10,7 +10,7 @@ import { resolve, canonicalIds } from "../lib/resolver.js";
 import { formatReference } from "../lib/format.js";
 import { addToZotero, getCollectionName, resolveCollectionKey } from "../lib/zotero.js";
 import { logOperation, checkRevisionId } from "../lib/safety.js";
-import { resolveSource, initHintForSource, rejectManifestSource } from "../lib/resolve-source.js";
+import { resolveSource, initHintForSource } from "../lib/resolve-source.js";
 import type { CitationEntry, LibraryEntry, CslJson } from "../types/index.js";
 import type { PendingReference, ScanWriteItem } from "../lib/document-source.js";
 
@@ -28,12 +28,12 @@ export function registerScanCommand(program: Command): void {
     .description("Scan document for pasted reference URLs and convert to citations")
     .option("--doc <docId>", "Google Doc ID")
     .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--manifest <path>", "Markdown manifest file to operate on (instead of a Google Doc or single markdown file)")
     .option("--collection <name>", "Zotero collection to add new references to")
     .option("--dry-run", "Preview only, do not write")
     .option("-y, --yes", "Skip confirmation prompt")
     .action(async (opts) => {
-      const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown });
-      rejectManifestSource(resolvedSrc, "scan");
+      const resolvedSrc = await resolveSource({ doc: opts.doc, markdown: opts.markdown, manifest: opts.manifest });
       const { source, stateKey } = resolvedSrc;
       const docState = await loadDocState(stateKey);
       if (!docState) {
