@@ -24,7 +24,7 @@ export function registerRemoveCommand(program: Command): void {
     .command("remove")
     .description("Remove a citation across all body files and renumber remaining citations")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--markdown <path>", "Single markdown file to operate on")
     .option("--manifest <path>", "Markdown manifest to remove from")
     .requiredOption("--key <key>", "Citation key to remove")
     .option("--dry-run", "Preview only, do not write")

@@ -19,7 +19,7 @@ export function registerBibCommand(program: Command): void {
     .command("bib")
     .description("Generate or update the bibliography section in a document")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--markdown <path>", "Single markdown file to operate on")
     .option("--manifest <path>", "Markdown manifest file to operate on")
     .option("--style <style>", "Citation style override")
     .option("--after <text>", "Insert bibliography after this text (first time only; Google Docs only)")

@@ -41,7 +41,7 @@ export function registerInsertCommand(program: Command): void {
     .command("insert")
     .description("Insert an inline citation into a document")
     .option("--doc <docId>", "Google Doc ID")
-    .option("--markdown <path>", "Markdown file to operate on (instead of a Google Doc)")
+    .option("--markdown <path>", "Single markdown file to operate on")
     .option("--manifest <path>", "Markdown manifest to insert into")
     .option("--file <path>", "Manifest body file to insert into")
     .option("--key <key>", "Citation key from library")
